@@ -21,6 +21,7 @@ from src.services.alignment_engine import (
 )
 from src.services.audio_streamer import iter_streamer_events
 from src.services.jev_classifier import (
+    VIBE_AXES,
     classify_batch,
     classify_topic_sync,
     empty_vibe_counts,
@@ -220,7 +221,7 @@ class SessionRegistry:
         self._prune_sync_buffers(session, now)
         speech = join_recent_speech(list(session.speech_chunks), now=now)
         chat_lines = recent_chat_lines(list(session.recent_chat), now=now)
-        session.streamer_transcript = speech or session.streamer_transcript
+        # Do not overwrite streamer_transcript here — UI shows the latest chunk only.
         if not speech or not chat_lines:
             return
         try:
@@ -380,32 +381,73 @@ class SessionRegistry:
         async def pump_audio() -> None:
             if session.platform != "youtube":
                 return
+            followup_task: asyncio.Task[None] | None = None
+
+            async def _vibe_and_align(
+                transcript: str,
+                chunk_ts: float,
+                client: AsyncTypeSafeClient,
+            ) -> None:
+                """JEV vibe + topic/theme — off the Whisper hot path."""
+                if session.stop_event.is_set():
+                    return
+                msg = {
+                    "id": f"streamer-{int(chunk_ts * 1000)}",
+                    "author": "streamer",
+                    "message": transcript,
+                }
+                try:
+                    metrics = await classify_batch([msg], client=client)
+                    item = (metrics.get("classifications") or [None])[0] or {}
+                    vibe = item.get("vibe")
+                    counts = empty_vibe_counts()
+                    if vibe in counts:
+                        counts[vibe] = 1
+                    session.streamer_vibe = vibe if vibe in VIBE_AXES else None
+                    session.streamer_vibe_counts = counts
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "JEV streamer classify failed session=%s",
+                        session.session_id,
+                    )
+                try:
+                    await self._refresh_topic_alignment(session, client, chunk_ts)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "Alignment followup failed session=%s",
+                        session.session_id,
+                    )
+                self._publish_stats(session, time.monotonic())
+
             try:
                 async with AsyncTypeSafeClient() as audio_client:
                     async for event in iter_streamer_events(
                         session.video_id,
                         session.stop_event,
-                        client=audio_client,
                     ):
                         if session.stop_event.is_set():
                             break
-                        session.streamer_vibe = event.get("streamer_vibe")
-                        session.streamer_vibe_counts = (
-                            event.get("streamer_vibe_counts") or empty_vibe_counts()
-                        )
                         session.audio_error = None
                         now = float(event.get("ts") or time.monotonic())
                         transcript = (event.get("transcript") or "").strip()
-                        if transcript:
-                            session.speech_chunks.append((now, transcript))
-                            self._prune_sync_buffers(session, now)
-                            session.streamer_transcript = join_recent_speech(
-                                list(session.speech_chunks), now=now
-                            )
-                            await self._refresh_topic_alignment(
-                                session, audio_client, now
-                            )
+                        if not transcript:
+                            continue
+                        session.speech_chunks.append((now, transcript))
+                        self._prune_sync_buffers(session, now)
+                        # UX: latest chunk only (not the 20s join — that lags line-clamp).
+                        session.streamer_transcript = transcript
                         self._publish_stats(session, now)
+
+                        if followup_task is not None and not followup_task.done():
+                            followup_task.cancel()
+                        followup_task = asyncio.create_task(
+                            _vibe_and_align(transcript, now, audio_client),
+                            name=f"audio-followup-{session.session_id[:8]}",
+                        )
             except asyncio.CancelledError:
                 raise
             except Exception as exc:
@@ -416,6 +458,10 @@ class SessionRegistry:
                 )
                 session.audio_error = str(exc)[:240]
                 self._publish_stats(session, time.monotonic())
+            finally:
+                if followup_task is not None and not followup_task.done():
+                    followup_task.cancel()
+                    await asyncio.gather(followup_task, return_exceptions=True)
 
         pump = asyncio.create_task(
             pump_chat(), name=f"chat-pump-{session.session_id[:8]}"

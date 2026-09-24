@@ -1,4 +1,4 @@
-"""YouTube Live audio → Faster-Whisper transcript → JEV streamer vibe."""
+"""YouTube Live audio → Faster-Whisper transcript (vibe/alignment downstream)."""
 
 from __future__ import annotations
 
@@ -12,18 +12,11 @@ from collections.abc import AsyncIterator
 from typing import Any
 
 import numpy as np
-from typesafe_sdk import AsyncTypeSafeClient
-
-from src.services.jev_classifier import (
-    VIBE_AXES,
-    classify_batch,
-    empty_vibe_counts,
-)
 
 logger = logging.getLogger(__name__)
 
 _SAMPLE_RATE = 16_000
-_CHUNK_SECONDS = 5.0
+_CHUNK_SECONDS = 3.0
 _CHUNK_BYTES = int(_SAMPLE_RATE * 2 * _CHUNK_SECONDS)  # s16le mono
 _MIN_TRANSCRIPT_CHARS = 3
 
@@ -127,7 +120,7 @@ async def iter_pcm_chunks(
     video_id: str,
     stop_event: asyncio.Event,
 ) -> AsyncIterator[bytes]:
-    """Yield 5s s16le mono PCM chunks from a YouTube Live stream."""
+    """Yield s16le mono PCM chunks from a YouTube Live stream."""
     url = youtube_watch_url(video_id)
     # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
     # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
@@ -169,10 +162,8 @@ async def iter_pcm_chunks(
 async def iter_streamer_events(
     video_id: str,
     stop_event: asyncio.Event,
-    *,
-    client: AsyncTypeSafeClient,
 ) -> AsyncIterator[dict[str, Any]]:
-    """Transcribe + JEV-classify live audio. Soft-fails via raised errors to caller."""
+    """Yield transcripts as soon as Whisper finishes (vibe/alignment happen downstream)."""
     prereq = audio_prereqs()
     if prereq:
         raise RuntimeError(prereq)
@@ -193,35 +184,14 @@ async def iter_streamer_events(
         if len(transcript) < _MIN_TRANSCRIPT_CHARS:
             continue
 
-        msg = {
-            "id": f"streamer-{int(time.time() * 1000)}",
-            "author": "streamer",
-            "message": transcript,
-        }
-        try:
-            metrics = await classify_batch([msg], client=client)
-        except Exception:
-            logger.exception("JEV streamer classify failed video=%s", video_id)
-            continue
-
-        classifications = metrics.get("classifications") or []
-        item = classifications[0] if classifications else {}
-        vibe = item.get("vibe")
-        counts = empty_vibe_counts()
-        if vibe in counts:
-            counts[vibe] = 1
-
         elapsed_ms = (time.perf_counter() - t0) * 1000
         logger.info(
-            "Streamer audio video=%s chars=%d vibe=%s elapsed_ms=%.0f",
+            "Streamer audio video=%s chars=%d whisper_ms=%.0f",
             video_id,
             len(transcript),
-            vibe,
             elapsed_ms,
         )
         yield {
             "ts": time.monotonic(),
             "transcript": transcript,
-            "streamer_vibe": vibe if vibe in VIBE_AXES else None,
-            "streamer_vibe_counts": counts,
         }

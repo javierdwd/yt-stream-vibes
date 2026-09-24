@@ -249,7 +249,10 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 <span className="text-muted">topic </span>
                 {stats?.theme_oneliner ?? "—"}
               </p>
-              <p className="line-clamp-2 font-mono text-[10px] leading-snug text-muted">
+              <p
+                className="line-clamp-2 font-mono text-[10px] leading-snug text-muted"
+                title={stats?.streamer_transcript ?? undefined}
+              >
                 <span className="text-muted/80">speech </span>
                 {stats?.streamer_transcript ?? "—"}
               </p>
