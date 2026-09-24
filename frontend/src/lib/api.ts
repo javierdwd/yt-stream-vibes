@@ -53,9 +53,9 @@ export type StatsEvent = {
     labels: string[];
     datasets: Array<{ label: string; data: number[] }>;
   };
+  vibe_counts?: Record<string, number>;
   top_vibe?: string | null;
   hype_score?: number;
-  questions?: Array<{ id: string; author: string; message: string }>;
   spam_rate?: number;
   spam_count?: number;
   window?: {
@@ -63,6 +63,12 @@ export type StatsEvent = {
     non_spam_count?: number;
     span_seconds?: number;
   };
+  streamer_transcript?: string | null;
+  streamer_vibe?: string | null;
+  theme_oneliner?: string | null;
+  alignment_score?: number | null;
+  alignment_label?: string | null;
+  audio_error?: string | null;
   error?: string;
   classify_error?: string;
 };

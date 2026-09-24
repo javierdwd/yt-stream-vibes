@@ -14,11 +14,19 @@ from typing import Any, Literal
 from typesafe_sdk import AsyncTypeSafeClient
 
 from src.adapters import get_live_adapter
+from src.services.alignment_engine import (
+    SPEECH_WINDOW_S,
+    join_recent_speech,
+    recent_chat_lines,
+)
+from src.services.audio_streamer import iter_streamer_events
 from src.services.jev_classifier import (
     classify_batch,
+    classify_topic_sync,
     empty_vibe_counts,
     radar_from_vibe_counts,
 )
+from src.services.theme_summarizer import summarize_theme
 
 logger = logging.getLogger(__name__)
 
@@ -55,7 +63,12 @@ class _WindowSample:
     vibe: str | None
     spam: bool
     hype_score: int
-    question: dict[str, Any] | None
+
+
+@dataclass
+class _ChatSnippet:
+    ts: float
+    line: str
 
 
 @dataclass
@@ -68,7 +81,16 @@ class AnalysisSession:
     chat_subs: list[asyncio.Queue[dict[str, Any] | None]] = field(default_factory=list)
     stats_subs: list[asyncio.Queue[dict[str, Any] | None]] = field(default_factory=list)
     window: deque[_WindowSample] = field(default_factory=deque)
+    recent_chat: deque[_ChatSnippet] = field(default_factory=deque)
+    speech_chunks: deque[tuple[float, str]] = field(default_factory=deque)
     last_stats: dict[str, Any] | None = None
+    streamer_transcript: str | None = None
+    streamer_vibe: str | None = None
+    streamer_vibe_counts: dict[str, int] = field(default_factory=empty_vibe_counts)
+    theme_oneliner: str | None = None
+    alignment_score: int | None = None
+    alignment_label: str | None = None
+    audio_error: str | None = None
 
 
 class SessionRegistry:
@@ -181,6 +203,53 @@ class SessionRegistry:
         for q in list(subs):
             self._put_drop_oldest(q, payload)
 
+    def _prune_sync_buffers(self, session: AnalysisSession, now: float) -> None:
+        speech_cut = now - SPEECH_WINDOW_S - 5.0
+        while session.speech_chunks and session.speech_chunks[0][0] < speech_cut:
+            session.speech_chunks.popleft()
+        chat_cut = now - SPEECH_WINDOW_S - 5.0
+        while session.recent_chat and session.recent_chat[0].ts < chat_cut:
+            session.recent_chat.popleft()
+
+    async def _refresh_topic_alignment(
+        self,
+        session: AnalysisSession,
+        client: AsyncTypeSafeClient,
+        now: float,
+    ) -> None:
+        self._prune_sync_buffers(session, now)
+        speech = join_recent_speech(list(session.speech_chunks), now=now)
+        chat_lines = recent_chat_lines(list(session.recent_chat), now=now)
+        session.streamer_transcript = speech or session.streamer_transcript
+        if not speech or not chat_lines:
+            return
+        try:
+            result = await classify_topic_sync(
+                streamer_speech=speech,
+                chat_lines=chat_lines,
+                client=client,
+            )
+        except Exception:
+            logger.exception(
+                "Topic sync classify failed session=%s", session.session_id
+            )
+            result = {"skipped": True}
+        if not result.get("skipped"):
+            session.alignment_score = result.get("alignment_score")
+            session.alignment_label = result.get("alignment_label")
+
+        try:
+            theme = await summarize_theme(
+                streamer_speech=speech,
+                chat_lines=chat_lines,
+            )
+            if theme:
+                session.theme_oneliner = theme
+        except Exception:
+            logger.exception(
+                "Theme summarize failed session=%s", session.session_id
+            )
+
     def _ingest_classifications(
         self,
         session: AnalysisSession,
@@ -189,13 +258,6 @@ class SessionRegistry:
     ) -> None:
         for item in classifications:
             spam = item.get("intent") == "spam"
-            question = None
-            if not spam and item.get("intent") == "question":
-                question = {
-                    "id": item["id"],
-                    "author": item["author"],
-                    "message": item["message"],
-                }
             # Session-scoped: keep every classified message until Clear/stop.
             session.window.append(
                 _WindowSample(
@@ -203,14 +265,22 @@ class SessionRegistry:
                     vibe=None if spam else item.get("vibe"),
                     spam=spam,
                     hype_score=0 if spam else int(item.get("hype_score") or 0),
-                    question=question,
                 )
             )
+            if spam:
+                continue
+            text = (item.get("message") or "").strip()
+            if not text:
+                continue
+            author = (item.get("author") or "").strip() or "anon"
+            session.recent_chat.append(
+                _ChatSnippet(ts=now, line=f"{author}: {text}")
+            )
+        self._prune_sync_buffers(session, now)
 
     def _stats_snapshot(self, session: AnalysisSession, now: float) -> dict[str, Any]:
         vibe_counts = empty_vibe_counts()
         hype_values: list[int] = []
-        questions: list[dict[str, Any]] = []
         spam_count = 0
         oldest_ts: float | None = None
         newest_ts: float | None = None
@@ -223,8 +293,6 @@ class SessionRegistry:
             if sample.vibe in vibe_counts:
                 vibe_counts[sample.vibe] += 1
             hype_values.append(sample.hype_score)
-            if sample.question:
-                questions.append(sample.question)
 
         message_count = len(session.window)
         non_spam = message_count - spam_count
@@ -237,12 +305,11 @@ class SessionRegistry:
             else 0
         )
 
-        return {
+        payload: dict[str, Any] = {
             "session_id": session.session_id,
             "video_id": session.video_id,
             "platform": session.platform,
             "hype_score": avg_hype,
-            "questions": questions[-40:],
             "spam_rate": round(spam_rate, 4),
             "spam_count": spam_count,
             "window": {
@@ -250,8 +317,22 @@ class SessionRegistry:
                 "non_spam_count": non_spam,
                 "span_seconds": span_s,
             },
+            "streamer_transcript": session.streamer_transcript,
+            "streamer_vibe": session.streamer_vibe,
+            "theme_oneliner": session.theme_oneliner,
+            "alignment_score": session.alignment_score,
+            "alignment_label": session.alignment_label,
             **radar,
         }
+        if session.audio_error:
+            payload["audio_error"] = session.audio_error
+        return payload
+
+    def _publish_stats(self, session: AnalysisSession, now: float, **extra: Any) -> None:
+        stats = self._stats_snapshot(session, now)
+        stats.update(extra)
+        session.last_stats = stats
+        self._fanout(session, "stats", stats)
 
     async def _run_session(self, session: AnalysisSession) -> None:
         adapter = get_live_adapter(session.platform)
@@ -296,8 +377,51 @@ class SessionRegistry:
                     except asyncio.QueueFull:
                         pass
 
+        async def pump_audio() -> None:
+            if session.platform != "youtube":
+                return
+            try:
+                async with AsyncTypeSafeClient() as audio_client:
+                    async for event in iter_streamer_events(
+                        session.video_id,
+                        session.stop_event,
+                        client=audio_client,
+                    ):
+                        if session.stop_event.is_set():
+                            break
+                        session.streamer_vibe = event.get("streamer_vibe")
+                        session.streamer_vibe_counts = (
+                            event.get("streamer_vibe_counts") or empty_vibe_counts()
+                        )
+                        session.audio_error = None
+                        now = float(event.get("ts") or time.monotonic())
+                        transcript = (event.get("transcript") or "").strip()
+                        if transcript:
+                            session.speech_chunks.append((now, transcript))
+                            self._prune_sync_buffers(session, now)
+                            session.streamer_transcript = join_recent_speech(
+                                list(session.speech_chunks), now=now
+                            )
+                            await self._refresh_topic_alignment(
+                                session, audio_client, now
+                            )
+                        self._publish_stats(session, now)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                logger.exception(
+                    "Audio pump failed session=%s video=%s",
+                    session.session_id,
+                    session.video_id,
+                )
+                session.audio_error = str(exc)[:240]
+                self._publish_stats(session, time.monotonic())
+
         pump = asyncio.create_task(
             pump_chat(), name=f"chat-pump-{session.session_id[:8]}"
+        )
+        audio_task = asyncio.create_task(
+            pump_audio(), name=f"audio-pump-{session.session_id[:8]}"
         )
         try:
             async with AsyncTypeSafeClient() as client:
@@ -312,7 +436,6 @@ class SessionRegistry:
                     metrics: dict[str, Any] = {
                         "classifications": [],
                         "hype_score": 0,
-                        "questions": [],
                     }
                     t0 = time.perf_counter()
                     try:
@@ -346,11 +469,10 @@ class SessionRegistry:
                         chat_payload["classify_error"] = metrics["error"]
                     self._fanout(session, "chat", chat_payload)
 
-                    stats = self._stats_snapshot(session, now)
+                    extra: dict[str, Any] = {}
                     if metrics.get("error"):
-                        stats["classify_error"] = metrics["error"]
-                    session.last_stats = stats
-                    self._fanout(session, "stats", stats)
+                        extra["classify_error"] = metrics["error"]
+                    self._publish_stats(session, now, **extra)
         except asyncio.CancelledError:
             raise
         except Exception:
@@ -375,12 +497,14 @@ class SessionRegistry:
                 },
             )
         finally:
-            pump.cancel()
-            try:
-                await pump
-            except asyncio.CancelledError:
-                pass
             session.stop_event.set()
+            pump.cancel()
+            audio_task.cancel()
+            for task in (pump, audio_task):
+                try:
+                    await task
+                except asyncio.CancelledError:
+                    pass
             self._close_all_subs(session)
             async with self._lock:
                 if self._sessions.get(session.session_id) is session:

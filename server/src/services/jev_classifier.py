@@ -55,6 +55,14 @@ _HYPE_LEVELS = (
     "Peak frenzy",
 )
 
+_TOPIC_SYNC_LEVELS = (
+    "Completely different topic — chat ignores what the streamer said",
+    "Mostly unrelated; only weak or accidental overlap",
+    "Mixed — some on-topic messages, many not",
+    "Same topic/moment — including jokes or trolls ABOUT that topic",
+    "Strongly locked to what the streamer just said",
+)
+
 _BASE_QUESTIONS = {
     "intent": Choice(
         instructions="What is the primary intent of this live chat message?",
@@ -96,6 +104,20 @@ _BASE_QUESTIONS = {
     "hype": Score(
         instructions="How much live-chat hype or energy does this message show?",
         criteria=list(_HYPE_LEVELS),
+    ),
+}
+
+_TOPIC_SYNC_QUESTIONS = {
+    "topic_sync": Score(
+        instructions=(
+            "Compare the streamer's recent spoken words to recent live chat. "
+            "Judge TOPICAL alignment only — same subject, moment, or referent. "
+            "Tone does NOT matter: jokes, sarcasm, and trolling ABOUT what the "
+            "streamer said still count as high alignment. "
+            "Generic emotes with no topical anchor, or chat about something else, "
+            "count as low. Reasoning in English; chat/speech may be any language."
+        ),
+        criteria=list(_TOPIC_SYNC_LEVELS),
     ),
 }
 
@@ -151,6 +173,56 @@ def _hype_to_0_100(raw_score: float) -> int:
     if top <= 0:
         return 0
     return int(max(0, min(100, round(float(raw_score) / top * 100))))
+
+
+def _topic_sync_to_0_100(raw_score: float) -> int:
+    top = float(len(_TOPIC_SYNC_LEVELS) - 1)
+    if top <= 0:
+        return 0
+    return int(max(0, min(100, round(float(raw_score) / top * 100))))
+
+
+async def classify_topic_sync(
+    *,
+    streamer_speech: str,
+    chat_lines: list[str],
+    client: AsyncTypeSafeClient,
+) -> dict[str, Any]:
+    """JEV topical sync: streamer speech vs recent chat (tone-agnostic)."""
+    speech = (streamer_speech or "").strip()
+    lines = [ln.strip() for ln in chat_lines if (ln or "").strip()]
+    if not speech or not lines:
+        return {
+            "alignment_score": None,
+            "alignment_label": None,
+            "skipped": True,
+        }
+
+    # Cap payload size for the classifier.
+    chat_blob = "\n".join(lines[-25:])
+    if len(speech) > 2500:
+        speech = speech[-2500:]
+    if len(chat_blob) > 3500:
+        chat_blob = chat_blob[-3500:]
+
+    response = await client.system_one(
+        state={
+            "streamer_speech": speech,
+            "recent_chat": chat_blob,
+        },
+        questions=_TOPIC_SYNC_QUESTIONS,
+    )
+    raw = float(response.scores["topic_sync"].score)
+    score = _topic_sync_to_0_100(raw)
+
+    # Local import avoids circular import at module load.
+    from src.services.alignment_engine import label_for_score
+
+    return {
+        "alignment_score": score,
+        "alignment_label": label_for_score(score),
+        "skipped": False,
+    }
 
 
 async def _classify_one(
@@ -209,7 +281,6 @@ async def classify_batch(
         return {
             "classifications": [],
             "hype_score": 0,
-            "questions": [],
             "spam_count": 0,
             "message_count": 0,
             **radar,
@@ -235,7 +306,6 @@ async def classify_batch(
     classifications: list[dict[str, Any]] = []
     vibe_counts = empty_vibe_counts()
     hype_values: list[int] = []
-    questions: list[dict[str, Any]] = []
     spam_count = 0
 
     for item in results:
@@ -247,14 +317,6 @@ async def classify_batch(
         vibe = item.get("vibe")
         if vibe in vibe_counts:
             vibe_counts[vibe] += 1
-        if item.get("intent") == "question":
-            questions.append(
-                {
-                    "id": item["id"],
-                    "author": item["author"],
-                    "message": item["message"],
-                }
-            )
 
     avg_hype = int(round(sum(hype_values) / len(hype_values))) if hype_values else 0
     radar = radar_from_vibe_counts(vibe_counts)
@@ -262,7 +324,6 @@ async def classify_batch(
     return {
         "classifications": classifications,
         "hype_score": avg_hype,
-        "questions": questions,
         "spam_count": spam_count,
         "message_count": len(messages),
         **radar,

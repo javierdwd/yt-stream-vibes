@@ -9,6 +9,15 @@ type Props = {
   sessionId: string | null;
 };
 
+const VIBE_ORDER = [
+  "laughter_humor",
+  "hype_pog",
+  "troll_sarcasm",
+  "support_wholesome",
+  "tension_drama",
+  "curiosity_context",
+] as const;
+
 const EMPTY_LABELS = [
   "Laughs",
   "Hype",
@@ -64,20 +73,23 @@ export function VibeRadarPanel({ sessionId }: Props) {
   }, [sessionId]);
 
   const labels = stats?.radar_data?.labels ?? EMPTY_LABELS;
-  const values = stats?.radar_data?.datasets?.[0]?.data ?? labels.map(() => 0);
+  const pctValues = stats?.radar_data?.datasets?.[0]?.data ?? labels.map(() => 0);
+  const countValues = VIBE_ORDER.map((key) =>
+    Number(stats?.vibe_counts?.[key] ?? 0),
+  );
   const spamPct =
     typeof stats?.spam_rate === "number"
       ? Math.round(stats.spam_rate * 100)
       : null;
 
-  const option = useMemo<EChartsOption>(
+  const radarOption = useMemo<EChartsOption>(
     () => ({
       animationDuration: 280,
       animationDurationUpdate: 280,
       radar: {
         indicator: labels.map((name) => ({ name, max: 100 })),
-        center: ["50%", "52%"],
-        radius: "62%",
+        center: ["50%", "55%"],
+        radius: "68%",
         axisName: {
           color: "#8b9aab",
           fontSize: 10,
@@ -94,7 +106,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
           type: "radar",
           data: [
             {
-              value: values,
+              value: pctValues,
               name: "Stream Vibe %",
               areaStyle: { color: "rgba(61,255,181,0.18)" },
               lineStyle: { color: "#3dffb5", width: 2 },
@@ -104,7 +116,63 @@ export function VibeRadarPanel({ sessionId }: Props) {
         },
       ],
     }),
-    [labels, values],
+    [labels, pctValues],
+  );
+
+  const barOption = useMemo<EChartsOption>(
+    () => ({
+      animationDuration: 280,
+      animationDurationUpdate: 280,
+      grid: {
+        left: 8,
+        right: 12,
+        top: 8,
+        bottom: 24,
+        containLabel: true,
+      },
+      xAxis: {
+        type: "category",
+        data: labels,
+        axisLabel: {
+          color: "#8b9aab",
+          fontSize: 10,
+          fontFamily: "var(--font-jetbrains), ui-monospace, monospace",
+          interval: 0,
+        },
+        axisLine: { lineStyle: { color: "#24303a" } },
+        axisTick: { show: false },
+      },
+      yAxis: {
+        type: "value",
+        minInterval: 1,
+        splitLine: { lineStyle: { color: "#24303a" } },
+        axisLabel: {
+          color: "#8b9aab",
+          fontSize: 10,
+          fontFamily: "var(--font-jetbrains), ui-monospace, monospace",
+        },
+      },
+      series: [
+        {
+          type: "bar",
+          data: countValues,
+          barMaxWidth: 28,
+          itemStyle: {
+            color: "#3dffb5",
+            borderRadius: [2, 2, 0, 0],
+          },
+          label: {
+            show: true,
+            position: "top",
+            color: "#8b9aab",
+            fontSize: 10,
+            fontFamily: "var(--font-jetbrains), ui-monospace, monospace",
+            formatter: "{c}",
+          },
+        },
+      ],
+    }),
+    [labels, countValues],
   );
 
   return (
@@ -133,7 +201,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col overflow-hidden bg-bg p-3">
+      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-bg p-3">
         {!sessionId ? (
           <p className="font-mono text-xs text-muted">
             Start a session to stream vibe stats…
@@ -142,7 +210,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
           <p className="font-mono text-xs text-live">{error}</p>
         ) : (
           <>
-            <div className="mb-2 flex flex-wrap items-baseline justify-between gap-2">
+            <div className="flex shrink-0 flex-wrap items-baseline justify-between gap-2">
               <p className="font-mono text-xs text-fg">
                 <span className="text-muted">Top vibe </span>
                 {stats?.top_vibe ?? "—"}
@@ -157,13 +225,58 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 </p>
               ) : null}
             </div>
-            <div className="min-h-[260px] flex-1">
-              <ReactECharts
-                option={option}
-                style={{ height: "100%", width: "100%", minHeight: 260 }}
-                opts={{ renderer: "canvas" }}
-                notMerge
-              />
+            <div className="shrink-0 space-y-1 border border-border bg-surface/40 px-2 py-1.5">
+              <div className="flex flex-wrap items-baseline justify-between gap-2">
+                <p className="font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                  Sync
+                </p>
+                {typeof stats?.alignment_score === "number" ? (
+                  <p className="font-mono text-[10px] tabular-nums text-accent">
+                    {stats.alignment_score}%
+                    {stats.alignment_label ? ` · ${stats.alignment_label}` : ""}
+                  </p>
+                ) : (
+                  <p className="font-mono text-[10px] text-muted">
+                    {stats?.audio_error
+                      ? stats.audio_error
+                      : stats?.platform === "youtube"
+                        ? "Listening…"
+                        : "YouTube only"}
+                  </p>
+                )}
+              </div>
+              <p className="font-mono text-[10px] leading-snug text-fg">
+                <span className="text-muted">topic </span>
+                {stats?.theme_oneliner ?? "—"}
+              </p>
+              <p className="line-clamp-2 font-mono text-[10px] leading-snug text-muted">
+                <span className="text-muted/80">speech </span>
+                {stats?.streamer_transcript ?? "—"}
+              </p>
+            </div>
+            <div className="grid min-h-0 flex-1 grid-rows-2 gap-2">
+              <div className="min-h-0">
+                <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                  Mix %
+                </p>
+                <ReactECharts
+                  option={radarOption}
+                  style={{ height: "calc(100% - 1rem)", width: "100%", minHeight: 100 }}
+                  opts={{ renderer: "canvas" }}
+                  notMerge
+                />
+              </div>
+              <div className="min-h-0">
+                <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                  Totals
+                </p>
+                <ReactECharts
+                  option={barOption}
+                  style={{ height: "calc(100% - 1rem)", width: "100%", minHeight: 100 }}
+                  opts={{ renderer: "canvas" }}
+                  notMerge
+                />
+              </div>
             </div>
           </>
         )}
