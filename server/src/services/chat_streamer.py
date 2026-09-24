@@ -59,7 +59,7 @@ def _poll_sync(
                 batch = []
                 deadline = now + flush_interval_s
             elif now >= deadline:
-                put([])
+                # No empty heartbeats — avoids SSE noise / UI metric resets.
                 deadline = now + flush_interval_s
 
             time.sleep(0.2)

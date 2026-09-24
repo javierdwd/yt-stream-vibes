@@ -87,6 +87,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 ### Out of scope (MVP)
 
 - **No database** — metrics live in memory for the active session only; nothing persisted
+- Spam is JEV `intent=spam` only (no separate heuristic detector)
 - Multi-user auth
 - Auto-reply / moderation actions on YouTube
 - Classifying beyond the JEV labels below
@@ -114,6 +115,7 @@ Do **not** add a DB or aggregator schema in MVP. When it lands, prefer a thin st
 | API | FastAPI + uvicorn via **uv** (`server/src`) | REST + SSE (internal; not browser-facing) |
 | BFF | Next.js App Router `/api/*` | Proxies REST + SSE to FastAPI; hides backend URL |
 | Frontend | Next.js latest stable + Tailwind + **pnpm** (`frontend/src`) | Real-time dashboard: controls, stream cards, analytics panel |
+| Charts | **Apache ECharts** (via `echarts` / `echarts-for-react` when wired) | Hype gauge, sentiment breakdown, and future analytics charts |
 | Persistence | None (MVP) | Future: aggregator for message→vibe listings |
 
 API keys and secrets stay server-side only.
@@ -201,6 +203,7 @@ Sub-second inference is a hard expectation; keep batches small and the wrapper t
   - Chat hype/temperature gauge (0–100)
   - Sentiment breakdown (positive / neutral / negative)
   - Q&A feed: messages with `intent=question`, excluding spam
+  - **Charts:** use **Apache ECharts** for gauges/series (not Chart.js, Recharts, or ad-hoc SVG). Install when implementing the analytics panel — not required in scaffold.
 
 ### Design direction — “Signal Room” (2026)
 

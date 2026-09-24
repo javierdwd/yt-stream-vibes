@@ -27,12 +27,22 @@ export type ChatMessage = {
   message: string;
   timestamp: string;
   type: string;
+  intent?: string | null;
+  sentiment?: string | null;
+  hype_score?: number | null;
+  spam?: boolean | null;
+  spam_reason?: string | null;
 };
 
 export type ChatBatchEvent = {
   video_id: string;
+  platform?: string;
   messages: ChatMessage[];
+  hype_score?: number;
+  sentiment?: { positive: number; neutral: number; negative: number };
+  questions?: Array<{ id: string; author: string; message: string }>;
   error?: string;
+  classify_error?: string;
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
