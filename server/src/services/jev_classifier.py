@@ -55,9 +55,9 @@ _HYPE_LEVELS = (
     "Peak frenzy",
 )
 
-_QUESTIONS = {
+_BASE_QUESTIONS = {
     "intent": Choice(
-        instructions="What is the primary intent of this YouTube live chat message?",
+        instructions="What is the primary intent of this live chat message?",
         criteria={
             "question": "Asks a question or seeks information from the streamer or chat",
             "hype/reaction": "Cheering, reacting, emotes, hype — no real question",
@@ -177,7 +177,7 @@ async def _classify_one(
     async with sem:
         response = await client.system_one(
             state={"author": author, "message": text},
-            questions=_QUESTIONS,
+            questions=_BASE_QUESTIONS,
         )
 
     intent = response.choices["intent"].choice
@@ -203,7 +203,6 @@ async def classify_batch(
 
     Spam is JEV `intent=spam` only (no heuristic session memory).
     Returns per-message labels plus batch aggregates for the analytics panel.
-    Vibe histogram excludes spam.
     """
     if not messages:
         radar = radar_from_vibe_counts(empty_vibe_counts())

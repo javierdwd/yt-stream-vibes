@@ -98,13 +98,6 @@ export function StreamRoom({ platform, streamId }: Props) {
         ? `https://player.twitch.tv/?channel=${encodeURIComponent(streamId)}&parent=${encodeURIComponent(embedDomain)}&muted=false`
         : null;
 
-  const chatSrc =
-    embedDomain == null
-      ? null
-      : platform === "youtube"
-        ? `https://www.youtube.com/live_chat?v=${encodeURIComponent(streamId)}&embed_domain=${encodeURIComponent(embedDomain)}&dark_theme=1`
-        : `https://www.twitch.tv/embed/${encodeURIComponent(streamId)}/chat?parent=${encodeURIComponent(embedDomain)}&darkpopout`;
-
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3 md:gap-4 md:px-6 md:py-4">
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
@@ -135,11 +128,6 @@ export function StreamRoom({ platform, streamId }: Props) {
           </span>
           <code className="font-mono text-xs text-muted">{streamId}</code>
           {sessionId ? (
-            <code className="hidden font-mono text-[10px] text-muted sm:inline">
-              {sessionId.slice(0, 8)}…
-            </code>
-          ) : null}
-          {sessionId ? (
             <button
               type="button"
               onClick={() => void onClear()}
@@ -165,7 +153,7 @@ export function StreamRoom({ platform, streamId }: Props) {
         <p className="shrink-0 truncate font-mono text-xs text-live">{actionError}</p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 overflow-hidden md:gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(0,0.85fr)_minmax(0,0.85fr)_minmax(0,0.95fr)] lg:grid-rows-1">
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 overflow-hidden md:gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1">
         <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
           <div className="shrink-0 border-b border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
             Player
@@ -182,25 +170,6 @@ export function StreamRoom({ platform, streamId }: Props) {
               />
             ) : (
               <p className="p-4 font-mono text-xs text-muted">Loading player…</p>
-            )}
-          </div>
-        </section>
-
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
-          <div className="shrink-0 border-b border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-            Official chat
-          </div>
-          <div className="relative min-h-0 flex-1 bg-bg">
-            {chatSrc ? (
-              <iframe
-                title={`${platform} live chat`}
-                src={chatSrc}
-                className="absolute inset-0 h-full w-full"
-                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
-                referrerPolicy="strict-origin-when-cross-origin"
-              />
-            ) : (
-              <p className="p-4 font-mono text-xs text-muted">Loading chat…</p>
             )}
           </div>
         </section>
