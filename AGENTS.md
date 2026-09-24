@@ -111,8 +111,9 @@ Do **not** add a DB or aggregator schema in MVP. When it lands, prefer a thin st
 | YouTube discovery | YouTube Data API v3 | Top lives + stream metrics |
 | Chat ingest | Python + `pytchat` | Live chat via InnerTube (avoids official chat quota) |
 | Classification | JEV | Ultra-low-latency ML on message batches |
-| API | FastAPI + uvicorn (`server/src`) | REST + SSE (server → client) to the UI |
-| Frontend | Next.js latest stable + Tailwind (`frontend/src`) | Real-time dashboard: controls, stream cards, analytics panel |
+| API | FastAPI + uvicorn via **uv** (`server/src`) | REST + SSE (internal; not browser-facing) |
+| BFF | Next.js App Router `/api/*` | Proxies REST + SSE to FastAPI; hides backend URL |
+| Frontend | Next.js latest stable + Tailwind + **pnpm** (`frontend/src`) | Real-time dashboard: controls, stream cards, analytics panel |
 | Persistence | None (MVP) | Future: aggregator for message→vibe listings |
 
 API keys and secrets stay server-side only.
@@ -136,7 +137,9 @@ API keys and secrets stay server-side only.
                                                               ▼
                                                     server (FastAPI + SSE)
                                                               ▼
-                                                    frontend (Next.js)
+                                                    Next.js /api/* (BFF proxy)
+                                                              ▼
+                                                    browser (EventSource / fetch)
 ```
 
 ### Target module layout
@@ -144,12 +147,13 @@ API keys and secrets stay server-side only.
 ```
 frontend/
   src/                 # Next.js app source (latest stable)
+    app/api/           # BFF route handlers → FastAPI (`API_URL` server-only)
+    lib/backend.ts     # server-only FastAPI base URL helper
 server/
   src/
-    main.py            # FastAPI app: REST + SSE broadcast
-    youtube_service.py # YouTube Data API: top lives by country + live metrics
-    chat_streamer.py   # pytchat worker: stream messages → micro-batches
-    jev_classifier.py  # JEV wrapper: batch in → structured JSON out
+    main.py              # FastAPI app: CORS + include_router
+    api/routes/          # health, lives, streams (APIRouter per resource)
+    services/            # youtube_service, chat_streamer, jev_classifier
 ```
 
 ### YouTube Data API v3
@@ -186,7 +190,7 @@ Sub-second inference is a hard expectation; keep batches small and the wrapper t
 
 - App under `frontend/src/`, created with the latest stable Next.js
 - **Styling:** Tailwind CSS (utility-first); design tokens as CSS variables wired into Tailwind theme
-- Connects to FastAPI (`server/`) over REST for actions; SSE (`EventSource`) for live metrics
+- Browser calls Next.js `/api/*` only (never FastAPI URL); SSE via `EventSource` on `/api/streams/{id}/events`
 - **Controls:** country dropdown (`regionCode`)
 - **Live feed:** Top 5 stream cards (thumbnail, title, channel, live viewers)
 - **Analytics (active stream):**
@@ -250,7 +254,8 @@ When implementing UI, define tokens in CSS first, then map them in Tailwind; kee
 ### Key invariants
 
 - Official API only for discovery/metrics; chat goes through `pytchat` / InnerTube
-- YouTube API key never exposed to the browser (Next.js talks only to FastAPI)
+- YouTube API key and FastAPI URL never exposed to the browser (`API_URL` is server-only; no `NEXT_PUBLIC_` backend URL)
+- Browser → Next.js `/api/*` → FastAPI; never call FastAPI from client code
 - Q&A feed shows only valid questions from JEV — never spam
 - API is FastAPI under `server/src/`; live metrics via SSE only (no WebSockets)
 - No DB in MVP — do not introduce persistence “for later” unless asked
@@ -260,17 +265,28 @@ When implementing UI, define tokens in CSS first, then map them in Tailwind; kee
 
 ## Commands
 
-_TBD once the project is scaffolded (venv, deps, run server, run UI)._
+### Server (`server/`)
+
+Requires [uv](https://docs.astral.sh/uv/).
 
 ```bash
-# server
-# cd server && python -m venv .venv && source .venv/bin/activate
-# pip install -r requirements.txt
-# uvicorn src.main:app --reload
-
-# frontend
-# cd frontend && npm install && npm run dev
+cd server
+uv sync
+cp .env.example .env        # set YOUTUBE_API_KEY
+uv run uvicorn src.main:app --reload --host 127.0.0.1 --port 8000
 ```
+
+### Frontend (`frontend/`)
+
+```bash
+cd frontend
+pnpm install
+cp .env.example .env.local  # API_URL (server-only; FastAPI base)
+pnpm dev
+```
+
+- FastAPI (internal): http://127.0.0.1:8000 (`/health`, `/docs`)
+- UI + public API: http://localhost:3000 (`/api/health`, `/api/lives`, …)
 
 ## Docs
 
