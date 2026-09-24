@@ -90,7 +90,7 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 - Multi-user auth
 - Auto-reply / moderation actions on YouTube
 - Classifying beyond the JEV labels below
-- Non-YouTube sources
+- Non-YouTube **product** sources in MVP (no Twitch UI/API yet) — but discovery/chat **must** already go through `LiveSourceAdapter` so Twitch can plug in later without rewriting routes
 
 ### Future: vibe aggregator (post-MVP)
 
@@ -123,24 +123,27 @@ API keys and secrets stay server-side only.
 ## Architecture
 
 ```
-[YouTube Data API v3] ── search.list / videos.list ──► youtube_service
-                                                              │
-[User picks stream] ──────────────────────────────────────────┤
-                                                              ▼
-                                                    chat_streamer (pytchat)
-                                                              │
-                                                    micro-batches (~3s or 15–20 msgs)
-                                                              ▼
-                                                    jev_classifier (JEV)
-                                                              │
-                                                    structured metrics JSON
-                                                              ▼
-                                                    server (FastAPI + SSE)
-                                                              ▼
-                                                    Next.js /api/* (BFF proxy)
-                                                              ▼
-                                                    browser (EventSource / fetch)
+[User / BFF]
+     │
+     ▼
+api/routes  ──►  LiveSourceAdapter  ──┬── YouTubeAdapter (MVP)
+                                      │      ├─ youtube_service (Data API)
+                                      │      └─ chat_streamer (pytchat)
+                                      │
+                                      └── TwitchAdapter (future — not in MVP)
+                                              └─ …
+     │
+     ▼
+jev_classifier (platform-agnostic batches)
+     │
+     ▼
+FastAPI SSE / REST → Next.js /api/* → browser
 ```
+
+**Platform adapters (required):** discovery and chat ingest go through
+`LiveSourceAdapter` (`server/src/adapters/`). Routes and JEV must not call
+YouTube/Twitch SDKs directly. MVP ships `YouTubeAdapter` only; Twitch is a
+later adapter behind the same interface — no Twitch work in MVP.
 
 ### Target module layout
 
@@ -153,6 +156,7 @@ server/
   src/
     main.py              # FastAPI app: CORS + include_router
     api/routes/          # health, lives, streams (APIRouter per resource)
+    adapters/            # LiveSourceAdapter + YouTube (Twitch later)
     services/            # youtube_service, chat_streamer, jev_classifier
 ```
 
@@ -253,13 +257,14 @@ When implementing UI, define tokens in CSS first, then map them in Tailwind; kee
 
 ### Key invariants
 
-- Official API only for discovery/metrics; chat goes through `pytchat` / InnerTube
+- Discovery + chat ingest only via `LiveSourceAdapter` (`adapters/`); never call YouTube/Twitch clients from `api/routes`
+- Official YouTube API only for discovery/metrics inside `YouTubeAdapter`; chat via `pytchat` / InnerTube
 - YouTube API key and FastAPI URL never exposed to the browser (`API_URL` is server-only; no `NEXT_PUBLIC_` backend URL)
 - Browser → Next.js `/api/*` → FastAPI; never call FastAPI from client code
 - Q&A feed shows only valid questions from JEV — never spam
 - API is FastAPI under `server/src/`; live metrics via SSE only (no WebSockets)
 - No DB in MVP — do not introduce persistence “for later” unless asked
-- Keep server modules independent and swappable
+- Keep adapters + services independent and swappable (Twitch = new adapter, same contract)
 
 ---
 

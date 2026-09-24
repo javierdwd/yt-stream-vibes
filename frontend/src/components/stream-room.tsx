@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
+import { IngestedChatFeed } from "@/components/ingested-chat-feed";
 
 type Props = {
   videoId: string;
@@ -43,7 +44,7 @@ export function StreamRoom({ videoId }: Props) {
         </div>
       </header>
 
-      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(280px,380px)] lg:items-stretch">
+      <div className="grid min-h-0 flex-1 gap-3 lg:grid-cols-[minmax(0,1.2fr)_minmax(240px,320px)_minmax(240px,320px)] lg:items-stretch">
         <section className="flex min-h-0 flex-col border border-border bg-surface">
           <div className="border-b border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
             Player
@@ -62,7 +63,7 @@ export function StreamRoom({ videoId }: Props) {
 
         <section className="flex min-h-[420px] flex-col border border-border bg-surface lg:min-h-0">
           <div className="border-b border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-            Live chat
+            Official chat
           </div>
           <div className="relative min-h-0 flex-1 bg-bg">
             {chatSrc ? (
@@ -78,6 +79,8 @@ export function StreamRoom({ videoId }: Props) {
             )}
           </div>
         </section>
+
+        <IngestedChatFeed videoId={videoId} />
       </div>
     </main>
   );

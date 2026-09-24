@@ -10,6 +10,7 @@ export type LiveStream = {
 
 export type LivesResponse = {
   q: string;
+  platform?: string;
   streams: LiveStream[];
   detail?: string;
 };
@@ -18,6 +19,20 @@ export type ConnectResponse = {
   video_id: string;
   status: string;
   detail?: string;
+};
+
+export type ChatMessage = {
+  id: string;
+  author: string;
+  message: string;
+  timestamp: string;
+  type: string;
+};
+
+export type ChatBatchEvent = {
+  video_id: string;
+  messages: ChatMessage[];
+  error?: string;
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
