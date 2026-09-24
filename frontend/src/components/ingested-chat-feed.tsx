@@ -13,13 +13,6 @@ type Props = {
 
 const MAX_MESSAGES = 200;
 
-function sentimentClass(s: string | null | undefined): string {
-  if (s === "positive") return "text-pos";
-  if (s === "negative") return "text-neg";
-  if (s === "neutral") return "text-neu";
-  return "text-muted";
-}
-
 function mergeMessages(prev: ChatMessage[], batch: ChatMessage[]): ChatMessage[] {
   const byId = new Map(prev.map((m) => [m.id, m]));
   for (const msg of batch) {
@@ -136,13 +129,6 @@ export function IngestedChatFeed({ sessionId }: Props) {
                       ) : m.intent ? (
                         <span className="text-[10px] uppercase tracking-wide text-muted">
                           {m.intent}
-                        </span>
-                      ) : null}
-                      {m.sentiment ? (
-                        <span
-                          className={`text-[10px] uppercase tracking-wide ${sentimentClass(m.sentiment)}`}
-                        >
-                          {m.sentiment}
                         </span>
                       ) : null}
                       {typeof m.hype_score === "number" ? (

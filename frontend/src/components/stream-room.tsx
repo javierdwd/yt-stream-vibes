@@ -4,13 +4,14 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { IngestedChatFeed } from "@/components/ingested-chat-feed";
 import { VibeRadarPanel } from "@/components/vibe-radar-panel";
-import { clearSession, connectStream } from "@/lib/api";
+import { clearSession, connectStream, type Platform } from "@/lib/api";
 
 type Props = {
-  videoId: string;
+  platform: Platform;
+  streamId: string;
 };
 
-export function StreamRoom({ videoId }: Props) {
+export function StreamRoom({ platform, streamId }: Props) {
   const [embedDomain, setEmbedDomain] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -34,14 +35,14 @@ export function StreamRoom({ videoId }: Props) {
         await clearSession(existing).catch(() => undefined);
         setSessionId(null);
       }
-      const res = await connectStream(videoId);
+      const res = await connectStream(platform, streamId);
       setSessionId(res.session_id);
     } catch (err) {
       setActionError(err instanceof Error ? err.message : "Connect failed");
     } finally {
       setBusy(false);
     }
-  }, [videoId]);
+  }, [platform, streamId]);
 
   const onClear = useCallback(async () => {
     const id = sessionRef.current;
@@ -65,7 +66,7 @@ export function StreamRoom({ videoId }: Props) {
       setBusy(true);
       setActionError(null);
       try {
-        const res = await connectStream(videoId);
+        const res = await connectStream(platform, streamId);
         if (cancelled) {
           await clearSession(res.session_id).catch(() => undefined);
           return;
@@ -88,13 +89,21 @@ export function StreamRoom({ videoId }: Props) {
       }
       setSessionId(null);
     };
-  }, [videoId]);
+  }, [platform, streamId]);
 
-  const playerSrc = `https://www.youtube.com/embed/${encodeURIComponent(videoId)}?autoplay=1&rel=0`;
+  const playerSrc =
+    platform === "youtube"
+      ? `https://www.youtube.com/embed/${encodeURIComponent(streamId)}?autoplay=1&rel=0`
+      : embedDomain != null
+        ? `https://player.twitch.tv/?channel=${encodeURIComponent(streamId)}&parent=${encodeURIComponent(embedDomain)}&muted=false`
+        : null;
+
   const chatSrc =
-    embedDomain != null
-      ? `https://www.youtube.com/live_chat?v=${encodeURIComponent(videoId)}&embed_domain=${encodeURIComponent(embedDomain)}&dark_theme=1`
-      : null;
+    embedDomain == null
+      ? null
+      : platform === "youtube"
+        ? `https://www.youtube.com/live_chat?v=${encodeURIComponent(streamId)}&embed_domain=${encodeURIComponent(embedDomain)}&dark_theme=1`
+        : `https://www.twitch.tv/embed/${encodeURIComponent(streamId)}/chat?parent=${encodeURIComponent(embedDomain)}&darkpopout`;
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3 md:gap-4 md:px-6 md:py-4">
@@ -121,7 +130,10 @@ export function StreamRoom({ videoId }: Props) {
               Idle
             </span>
           )}
-          <code className="font-mono text-xs text-muted">{videoId}</code>
+          <span className="font-mono text-[10px] uppercase tracking-wider text-muted">
+            {platform}
+          </span>
+          <code className="font-mono text-xs text-muted">{streamId}</code>
           {sessionId ? (
             <code className="hidden font-mono text-[10px] text-muted sm:inline">
               {sessionId.slice(0, 8)}…
@@ -159,14 +171,18 @@ export function StreamRoom({ videoId }: Props) {
             Player
           </div>
           <div className="relative min-h-0 flex-1 bg-bg">
-            <iframe
-              title="YouTube live player"
-              src={playerSrc}
-              className="absolute inset-0 h-full w-full"
-              allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-              allowFullScreen
-              referrerPolicy="strict-origin-when-cross-origin"
-            />
+            {playerSrc ? (
+              <iframe
+                title={`${platform} live player`}
+                src={playerSrc}
+                className="absolute inset-0 h-full w-full"
+                allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                allowFullScreen
+                referrerPolicy="strict-origin-when-cross-origin"
+              />
+            ) : (
+              <p className="p-4 font-mono text-xs text-muted">Loading player…</p>
+            )}
           </div>
         </section>
 
@@ -177,7 +193,7 @@ export function StreamRoom({ videoId }: Props) {
           <div className="relative min-h-0 flex-1 bg-bg">
             {chatSrc ? (
               <iframe
-                title="YouTube live chat"
+                title={`${platform} live chat`}
                 src={chatSrc}
                 className="absolute inset-0 h-full w-full"
                 allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"

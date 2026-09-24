@@ -60,7 +60,7 @@ async def session_chat_events(session_id: str) -> StreamingResponse:
 
 @router.get("/{session_id}/stats/events")
 async def session_stats_events(session_id: str) -> StreamingResponse:
-    """SSE: rolling vibe radar + hype/sentiment/questions/spam_rate."""
+    """SSE: session vibe radar + hype/questions/spam_rate."""
     return StreamingResponse(
         _event_source(session_id, "stats"),
         media_type="text/event-stream",

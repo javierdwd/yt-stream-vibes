@@ -1,4 +1,4 @@
-"""YouTube Data API v3: search live streams + live metrics."""
+"""YouTube Data API v3: resolve video metadata (+ legacy search helper)."""
 
 from __future__ import annotations
 
@@ -51,13 +51,50 @@ def _concurrent_viewers(video: dict[str, Any]) -> int | None:
 
 def _to_stream(video_id: str, video: dict[str, Any]) -> dict[str, Any]:
     snippet = video.get("snippet") or {}
+    live = (video.get("snippet") or {}).get("liveBroadcastContent")
     return {
+        "platform": "youtube",
+        "stream_id": video_id,
         "video_id": video_id,
         "title": snippet.get("title") or "",
         "channel": snippet.get("channelTitle") or "",
         "thumbnail_url": _thumbnail_url(snippet),
         "concurrent_viewers": _concurrent_viewers(video),
+        "live": live == "live",
     }
+
+
+async def resolve_stream(video_id: str) -> dict[str, Any]:
+    """Fetch metadata for a single video id via videos.list."""
+    vid = (video_id or "").strip()
+    if not vid:
+        raise YouTubeAPIError("video_id is required", status_code=400)
+
+    key = _api_key()
+    async with httpx.AsyncClient(base_url=YOUTUBE_API_BASE, timeout=20.0) as client:
+        try:
+            videos_res = await client.get(
+                "/videos",
+                params={
+                    "part": "snippet,liveStreamingDetails,statistics",
+                    "id": vid,
+                    "key": key,
+                },
+            )
+            videos_res.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            detail = exc.response.text[:300]
+            raise YouTubeAPIError(
+                f"YouTube videos.list failed: {detail}",
+                status_code=502,
+            ) from exc
+        except httpx.HTTPError as exc:
+            raise YouTubeAPIError(f"YouTube videos.list unreachable: {exc}") from exc
+
+        items = videos_res.json().get("items") or []
+        if not items:
+            raise YouTubeAPIError("YouTube video not found", status_code=404)
+        return _to_stream(vid, items[0])
 
 
 async def search_live_streams(
@@ -65,11 +102,7 @@ async def search_live_streams(
     *,
     limit: int = DEFAULT_LIMIT,
 ) -> list[dict[str, Any]]:
-    """Search currently live videos by free-text query (channel name, topic, etc.).
-
-    Mirrors YouTube search with Live filter: search.list (eventType=live, type=video,
-    order=relevance) then videos.list for concurrent viewers.
-    """
+    """Deprecated: kept for local debugging only."""
     query = q.strip()
     if not query:
         return []
@@ -129,8 +162,6 @@ async def search_live_streams(
             raise YouTubeAPIError(f"YouTube videos.list unreachable: {exc}") from exc
 
         by_id = {v["id"]: v for v in (videos_res.json().get("items") or []) if "id" in v}
-
-        # Preserve YouTube relevance order from search.list.
         streams: list[dict[str, Any]] = []
         for video_id in video_ids:
             video = by_id.get(video_id)

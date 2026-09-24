@@ -18,7 +18,7 @@ const jetbrains = JetBrains_Mono({
 export const metadata: Metadata = {
   title: "yt-stream-vibes",
   description:
-    "Real-time YouTube Live sentiment & intent analyzer (JEV Engine)",
+    "Real-time YouTube/Twitch live vibe analyzer (JEV Engine)",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

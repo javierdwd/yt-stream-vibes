@@ -24,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 _CLASSIFY_QUEUE_SIZE = 8
 _SUBSCRIBER_QUEUE_SIZE = 32
-_ROLLING_WINDOW_S = 30.0
 Channel = Literal["chat", "stats"]
 
 
@@ -41,7 +40,6 @@ def enrich_messages(
             {
                 **msg,
                 "intent": intent,
-                "sentiment": (label or {}).get("sentiment"),
                 "hype_score": (label or {}).get("hype_score"),
                 "vibe": (label or {}).get("vibe"),
                 "spam": intent == "spam",
@@ -56,7 +54,6 @@ class _WindowSample:
     ts: float
     vibe: str | None
     spam: bool
-    sentiment: str | None
     hype_score: int
     question: dict[str, Any] | None
 
@@ -81,12 +78,12 @@ class SessionRegistry:
         self._sessions: dict[str, AnalysisSession] = {}
         self._lock = asyncio.Lock()
 
-    async def create(self, video_id: str) -> AnalysisSession:
-        adapter = get_live_adapter()
+    async def create(self, *, platform: str, stream_id: str) -> AnalysisSession:
+        adapter = get_live_adapter(platform)
         session_id = uuid.uuid4().hex
         session = AnalysisSession(
             session_id=session_id,
-            video_id=video_id,
+            video_id=stream_id,
             platform=adapter.platform,
         )
         async with self._lock:
@@ -95,7 +92,12 @@ class SessionRegistry:
             self._run_session(session),
             name=f"session-{session_id[:8]}",
         )
-        logger.info("Session started id=%s video=%s", session_id, video_id)
+        logger.info(
+            "Session started id=%s platform=%s stream=%s",
+            session_id,
+            adapter.platform,
+            stream_id,
+        )
         return session
 
     def get(self, session_id: str) -> AnalysisSession | None:
@@ -179,11 +181,6 @@ class SessionRegistry:
         for q in list(subs):
             self._put_drop_oldest(q, payload)
 
-    def _prune_window(self, session: AnalysisSession, now: float) -> None:
-        cutoff = now - _ROLLING_WINDOW_S
-        while session.window and session.window[0].ts < cutoff:
-            session.window.popleft()
-
     def _ingest_classifications(
         self,
         session: AnalysisSession,
@@ -199,33 +196,32 @@ class SessionRegistry:
                     "author": item["author"],
                     "message": item["message"],
                 }
+            # Session-scoped: keep every classified message until Clear/stop.
             session.window.append(
                 _WindowSample(
                     ts=now,
                     vibe=None if spam else item.get("vibe"),
                     spam=spam,
-                    sentiment=None if spam else (item.get("sentiment") or "neutral"),
                     hype_score=0 if spam else int(item.get("hype_score") or 0),
                     question=question,
                 )
             )
-        self._prune_window(session, now)
 
     def _stats_snapshot(self, session: AnalysisSession, now: float) -> dict[str, Any]:
-        self._prune_window(session, now)
         vibe_counts = empty_vibe_counts()
-        sentiment = {"positive": 0, "neutral": 0, "negative": 0}
         hype_values: list[int] = []
         questions: list[dict[str, Any]] = []
         spam_count = 0
+        oldest_ts: float | None = None
+        newest_ts: float | None = None
         for sample in session.window:
+            oldest_ts = sample.ts if oldest_ts is None else oldest_ts
+            newest_ts = sample.ts
             if sample.spam:
                 spam_count += 1
                 continue
             if sample.vibe in vibe_counts:
                 vibe_counts[sample.vibe] += 1
-            if sample.sentiment in sentiment:
-                sentiment[sample.sentiment] += 1
             hype_values.append(sample.hype_score)
             if sample.question:
                 questions.append(sample.question)
@@ -235,26 +231,30 @@ class SessionRegistry:
         avg_hype = int(round(sum(hype_values) / len(hype_values))) if hype_values else 0
         spam_rate = (spam_count / message_count) if message_count else 0.0
         radar = radar_from_vibe_counts(vibe_counts)
+        span_s = (
+            int(max(0.0, (newest_ts or now) - (oldest_ts or now)))
+            if message_count
+            else 0
+        )
 
         return {
             "session_id": session.session_id,
             "video_id": session.video_id,
             "platform": session.platform,
             "hype_score": avg_hype,
-            "sentiment": sentiment,
             "questions": questions[-40:],
             "spam_rate": round(spam_rate, 4),
             "spam_count": spam_count,
             "window": {
-                "seconds": int(_ROLLING_WINDOW_S),
                 "message_count": message_count,
                 "non_spam_count": non_spam,
+                "span_seconds": span_s,
             },
             **radar,
         }
 
     async def _run_session(self, session: AnalysisSession) -> None:
-        adapter = get_live_adapter()
+        adapter = get_live_adapter(session.platform)
         pending: asyncio.Queue[list[dict[str, Any]] | None] = asyncio.Queue(
             maxsize=_CLASSIFY_QUEUE_SIZE
         )
@@ -312,7 +312,6 @@ class SessionRegistry:
                     metrics: dict[str, Any] = {
                         "classifications": [],
                         "hype_score": 0,
-                        "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
                         "questions": [],
                     }
                     t0 = time.perf_counter()

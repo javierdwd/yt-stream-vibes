@@ -150,8 +150,9 @@ export function VibeRadarPanel({ sessionId }: Props) {
               {spamPct != null ? (
                 <p className="font-mono text-[10px] tabular-nums text-muted">
                   spam {spamPct}%
-                  {stats?.window
-                    ? ` · ${stats.window.message_count} msgs / ${stats.window.seconds}s`
+                  {stats?.window ? ` · ${stats.window.message_count} msgs` : ""}
+                  {stats?.window?.span_seconds != null
+                    ? ` · ${stats.window.span_seconds}s`
                     : ""}
                 </p>
               ) : null}

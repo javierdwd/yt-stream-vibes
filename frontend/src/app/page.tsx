@@ -1,4 +1,4 @@
-import { LivesPanel } from "@/components/lives-panel";
+import { UrlPastePanel } from "@/components/url-paste-panel";
 
 export default function Home() {
   return (
@@ -12,9 +12,7 @@ export default function Home() {
         </p>
       </header>
 
-      <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
-        <LivesPanel />
-      </div>
+      <UrlPastePanel />
     </main>
   );
 }

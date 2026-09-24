@@ -1,4 +1,4 @@
-"""Platform-agnostic live source adapter (YouTube now; Twitch later)."""
+"""Platform-agnostic live source adapter (YouTube + Twitch)."""
 
 from __future__ import annotations
 
@@ -15,16 +15,15 @@ class LiveSourceError(Exception):
 
 
 class LiveSourceAdapter(Protocol):
-    """Fetch lives + chat behind one interface so routes stay platform-agnostic.
+    """Resolve stream metadata + chat behind one interface.
 
-    Next platform (Twitch) should implement this — do not call YouTube/Twitch
-    SDKs from `api/routes`.
+    Platform SDKs stay in adapters/services — never call them from api/routes.
     """
 
     platform: str
 
-    async def search_lives(self, q: str, *, limit: int = 16) -> list[dict[str, Any]]:
-        """Return normalized live stream cards for search query `q`."""
+    async def resolve_stream(self, stream_id: str) -> dict[str, Any]:
+        """Return normalized metadata for `stream_id` (video id or channel login)."""
         ...
 
     def stream_chat_batches(

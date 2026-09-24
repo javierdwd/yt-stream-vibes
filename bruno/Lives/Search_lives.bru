@@ -1,5 +1,5 @@
 meta {
-  name: Search lives
+  name: Search lives (deprecated)
   type: http
   seq: 1
 }
@@ -8,4 +8,8 @@ get {
   url: {{baseUrl}}/api/lives?q={{q}}
   body: none
   auth: none
+}
+
+docs {
+  Deprecated: returns 410. Use POST /api/streams/resolve with a stream URL.
 }

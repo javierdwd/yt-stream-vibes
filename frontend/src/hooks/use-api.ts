@@ -1,19 +1,12 @@
-"use client";
+import { connectStream, type Platform } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
 
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { connectStream, fetchLives } from "@/lib/api";
-
-export function useLives(q: string) {
-  const query = q.trim();
+export function useConnect(platform: Platform, streamId: string) {
   return useQuery({
-    queryKey: ["lives", query],
-    queryFn: () => fetchLives(query),
-    enabled: query.length >= 2,
-  });
-}
-
-export function useConnectStream() {
-  return useMutation({
-    mutationFn: (videoId: string) => connectStream(videoId),
+    queryKey: ["connect", platform, streamId],
+    queryFn: () => connectStream(platform, streamId),
+    enabled: Boolean(platform && streamId),
+    staleTime: Infinity,
+    retry: 1,
   });
 }

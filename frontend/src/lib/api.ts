@@ -1,24 +1,23 @@
 /** Browser-facing API client — always hits Next.js `/api/*`, never FastAPI. */
 
-export type LiveStream = {
-  video_id: string;
+export type Platform = "youtube" | "twitch";
+
+export type ResolveResponse = {
+  platform: Platform;
+  stream_id: string;
   title: string;
   channel: string;
   thumbnail_url: string;
   concurrent_viewers: number | null;
-};
-
-export type LivesResponse = {
-  q: string;
-  platform?: string;
-  streams: LiveStream[];
+  live: boolean;
   detail?: string;
 };
 
 export type ConnectResponse = {
   session_id: string;
+  stream_id: string;
   video_id: string;
-  platform?: string;
+  platform: Platform;
   status: string;
   detail?: string;
 };
@@ -30,7 +29,6 @@ export type ChatMessage = {
   timestamp: string;
   type: string;
   intent?: string | null;
-  sentiment?: string | null;
   hype_score?: number | null;
   vibe?: string | null;
   spam?: boolean | null;
@@ -57,14 +55,13 @@ export type StatsEvent = {
   };
   top_vibe?: string | null;
   hype_score?: number;
-  sentiment?: { positive: number; neutral: number; negative: number };
   questions?: Array<{ id: string; author: string; message: string }>;
   spam_rate?: number;
   spam_count?: number;
   window?: {
-    seconds: number;
     message_count: number;
     non_spam_count?: number;
+    span_seconds?: number;
   };
   error?: string;
   classify_error?: string;
@@ -75,6 +72,7 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
     headers: {
       Accept: "application/json",
+      "Content-Type": "application/json",
       ...init?.headers,
     },
   });
@@ -93,15 +91,22 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
   return res.json() as Promise<T>;
 }
 
-export function fetchLives(q: string): Promise<LivesResponse> {
-  const params = new URLSearchParams({ q });
-  return apiJson(`/api/lives?${params}`);
+export function resolveStreamUrl(url: string): Promise<ResolveResponse> {
+  return apiJson("/api/streams/resolve", {
+    method: "POST",
+    body: JSON.stringify({ url }),
+  });
 }
 
-export function connectStream(videoId: string): Promise<ConnectResponse> {
-  return apiJson(`/api/streams/${encodeURIComponent(videoId)}/connect`, {
-    method: "POST",
-  });
+export function connectStream(
+  platform: Platform,
+  streamId: string,
+): Promise<ConnectResponse> {
+  const params = new URLSearchParams({ platform });
+  return apiJson(
+    `/api/streams/${encodeURIComponent(streamId)}/connect?${params}`,
+    { method: "POST" },
+  );
 }
 
 export async function clearSession(sessionId: string): Promise<void> {

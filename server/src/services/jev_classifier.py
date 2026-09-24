@@ -11,7 +11,6 @@ from typesafe_sdk import AsyncTypeSafeClient, Choice, Score
 logger = logging.getLogger(__name__)
 
 Intent = Literal["question", "hype/reaction", "technical_issue", "spam"]
-Sentiment = Literal["positive", "neutral", "negative"]
 Vibe = Literal[
     "laughter_humor",
     "hype_pog",
@@ -64,14 +63,6 @@ _QUESTIONS = {
             "hype/reaction": "Cheering, reacting, emotes, hype — no real question",
             "technical_issue": "Reports playback, audio, lag, buffering, or stream tech problems",
             "spam": "Spam, bots, scams, irrelevant promo, or nonsense flood",
-        },
-    ),
-    "sentiment": Choice(
-        instructions="Overall sentiment of this live chat message",
-        criteria={
-            "positive": "Positive, supportive, happy",
-            "neutral": "Neutral, mixed, or unclear",
-            "negative": "Negative, angry, hostile, or disappointed",
         },
     ),
     "vibe": Choice(
@@ -177,7 +168,6 @@ async def _classify_one(
         "author": author,
         "message": text,
         "intent": "spam" if not text else "hype/reaction",
-        "sentiment": "neutral",
         "hype_score": 0,
         "vibe": None,
     }
@@ -191,18 +181,15 @@ async def _classify_one(
         )
 
     intent = response.choices["intent"].choice
-    sentiment = response.choices["sentiment"].choice
     vibe = response.choices["vibe"].choice
     hype_raw = float(response.scores["hype"].score)
 
     return {
         **base,
         "intent": intent,
-        "sentiment": sentiment,
         "vibe": vibe if vibe in VIBE_AXES else None,
         "hype_score": _hype_to_0_100(hype_raw),
         "intent_confidence": float(response.choices["intent"].confidence or 0),
-        "sentiment_confidence": float(response.choices["sentiment"].confidence or 0),
         "vibe_confidence": float(response.choices["vibe"].confidence or 0),
     }
 
@@ -223,7 +210,6 @@ async def classify_batch(
         return {
             "classifications": [],
             "hype_score": 0,
-            "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
             "questions": [],
             "spam_count": 0,
             "message_count": 0,
@@ -248,7 +234,6 @@ async def classify_batch(
         raise
 
     classifications: list[dict[str, Any]] = []
-    sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
     vibe_counts = empty_vibe_counts()
     hype_values: list[int] = []
     questions: list[dict[str, Any]] = []
@@ -259,9 +244,6 @@ async def classify_batch(
         if item.get("intent") == "spam":
             spam_count += 1
             continue
-        sent = item.get("sentiment") or "neutral"
-        if sent in sentiment_counts:
-            sentiment_counts[sent] += 1
         hype_values.append(int(item.get("hype_score") or 0))
         vibe = item.get("vibe")
         if vibe in vibe_counts:
@@ -281,7 +263,6 @@ async def classify_batch(
     return {
         "classifications": classifications,
         "hype_score": avg_hype,
-        "sentiment": sentiment_counts,
         "questions": questions,
         "spam_count": spam_count,
         "message_count": len(messages),
@@ -306,7 +287,6 @@ async def _run_all(
                     "author": str(msg.get("author") or ""),
                     "message": str(msg.get("message") or ""),
                     "intent": "hype/reaction",
-                    "sentiment": "neutral",
                     "hype_score": 0,
                     "vibe": None,
                     "error": str(result),

@@ -1,15 +1,15 @@
 meta {
   name: Events (deprecated)
   type: http
-  seq: 2
+  seq: 3
 }
 
 get {
-  url: {{baseUrl}}/api/streams/{{videoId}}/events
+  url: {{baseUrl}}/api/streams/{{streamId}}/events
   body: none
   auth: none
 }
 
 docs {
-  Deprecated: use /api/sessions/{{sessionId}}/chat/events and /stats/events after connect returns session_id.
+  Deprecated: use /api/sessions/{{sessionId}}/chat/events and /stats/events after connect.
 }
