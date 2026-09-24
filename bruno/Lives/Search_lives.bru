@@ -1,0 +1,11 @@
+meta {
+  name: Search lives
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/lives?q={{q}}
+  body: none
+  auth: none
+}
