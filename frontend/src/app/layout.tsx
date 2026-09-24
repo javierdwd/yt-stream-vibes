@@ -25,9 +25,9 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${syne.variable} ${jetbrains.variable} h-full antialiased`}
+      className={`${syne.variable} ${jetbrains.variable} h-dvh overflow-hidden antialiased`}
     >
-      <body className="min-h-full flex flex-col bg-bg text-fg">
+      <body className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
         <QueryProvider>{children}</QueryProvider>
       </body>
     </html>

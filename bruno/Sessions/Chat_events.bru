@@ -1,0 +1,11 @@
+meta {
+  name: Chat events
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{baseUrl}}/api/sessions/{{sessionId}}/chat/events
+  body: none
+  auth: none
+}

@@ -1,5 +1,5 @@
 meta {
-  name: Events
+  name: Events (deprecated)
   type: http
   seq: 2
 }
@@ -10,7 +10,6 @@ get {
   auth: none
 }
 
-headers {
-  Accept: text/event-stream
-  Cache-Control: no-cache
+docs {
+  Deprecated: use /api/sessions/{{sessionId}}/chat/events and /stats/events after connect returns session_id.
 }

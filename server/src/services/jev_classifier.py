@@ -12,6 +12,41 @@ logger = logging.getLogger(__name__)
 
 Intent = Literal["question", "hype/reaction", "technical_issue", "spam"]
 Sentiment = Literal["positive", "neutral", "negative"]
+Vibe = Literal[
+    "laughter_humor",
+    "hype_pog",
+    "troll_sarcasm",
+    "support_wholesome",
+    "tension_drama",
+    "curiosity_context",
+]
+
+VIBE_AXES: tuple[Vibe, ...] = (
+    "laughter_humor",
+    "hype_pog",
+    "troll_sarcasm",
+    "support_wholesome",
+    "tension_drama",
+    "curiosity_context",
+)
+
+RADAR_LABELS: tuple[str, ...] = (
+    "Laughs",
+    "Hype",
+    "Troll",
+    "Support",
+    "Tension",
+    "Curiosity",
+)
+
+TOP_VIBE_LABELS: dict[Vibe, str] = {
+    "laughter_humor": "Laughs / Humor",
+    "hype_pog": "Hype / Pog",
+    "troll_sarcasm": "Troll / Sarcasm",
+    "support_wholesome": "Support / Wholesome",
+    "tension_drama": "Tension / Drama",
+    "curiosity_context": "Curiosity / Context",
+}
 
 _HYPE_LEVELS = (
     "No hype or energy",
@@ -39,6 +74,34 @@ _QUESTIONS = {
             "negative": "Negative, angry, hostile, or disappointed",
         },
     ),
+    "vibe": Choice(
+        instructions=(
+            "Entertainment/gaming live-chat vibe. Pick exactly one emotional axis "
+            "for this message (Twitch/YouTube Live culture). Criteria and reasoning "
+            "must be in English; chat slang in any language is fine as evidence."
+        ),
+        criteria={
+            "laughter_humor": (
+                "Laughter, memes, cringe — e.g. LOL, KEKW, LUL, XDD, funny fails"
+            ),
+            "hype_pog": (
+                "High energy, epic plays, hype — e.g. POG, LETS GO, HYPE, clutch"
+            ),
+            "troll_sarcasm": (
+                "Banter, gentle trolling, Fs in chat — e.g. F, RIP, skill issue, CLOWN, L"
+            ),
+            "support_wholesome": (
+                "Love, GG, support, hearts — e.g. GG, love the stream, <3, wholesome"
+            ),
+            "tension_drama": (
+                "Suspense, fear, intense moments — e.g. monkaS, NOOO, watch out, ???, oh no"
+            ),
+            "curiosity_context": (
+                "Questions, context requests, theories — e.g. what happened?, "
+                "what game is this?"
+            ),
+        },
+    ),
     "hype": Score(
         instructions="How much live-chat hype or energy does this message show?",
         criteria=list(_HYPE_LEVELS),
@@ -46,6 +109,49 @@ _QUESTIONS = {
 }
 
 _MAX_CONCURRENCY = 8
+
+
+def empty_vibe_counts() -> dict[str, int]:
+    return {axis: 0 for axis in VIBE_AXES}
+
+
+def radar_from_vibe_counts(counts: dict[str, int]) -> dict[str, Any]:
+    """Normalize vibe counts to radar % (non-spam only; caller must exclude spam)."""
+    total = sum(int(counts.get(axis, 0) or 0) for axis in VIBE_AXES)
+    if total <= 0:
+        data = [0] * len(VIBE_AXES)
+        return {
+            "chart_type": "radar",
+            "radar_data": {
+                "labels": list(RADAR_LABELS),
+                "datasets": [{"label": "Stream Vibe %", "data": data}],
+            },
+            "top_vibe": None,
+            "vibe_counts": empty_vibe_counts(),
+        }
+
+    raw = [int(counts.get(axis, 0) or 0) for axis in VIBE_AXES]
+    # Largest-remainder so integers sum to 100.
+    exact = [c * 100.0 / total for c in raw]
+    floors = [int(x) for x in exact]
+    rem = 100 - sum(floors)
+    order = sorted(range(len(exact)), key=lambda i: exact[i] - floors[i], reverse=True)
+    data = floors[:]
+    for i in order[:rem]:
+        data[i] += 1
+
+    top_idx = max(range(len(raw)), key=lambda i: (raw[i], -i))
+    top_axis = VIBE_AXES[top_idx] if raw[top_idx] > 0 else None
+
+    return {
+        "chart_type": "radar",
+        "radar_data": {
+            "labels": list(RADAR_LABELS),
+            "datasets": [{"label": "Stream Vibe %", "data": data}],
+        },
+        "top_vibe": TOP_VIBE_LABELS.get(top_axis) if top_axis else None,
+        "vibe_counts": {axis: int(counts.get(axis, 0) or 0) for axis in VIBE_AXES},
+    }
 
 
 def _hype_to_0_100(raw_score: float) -> int:
@@ -73,6 +179,7 @@ async def _classify_one(
         "intent": "spam" if not text else "hype/reaction",
         "sentiment": "neutral",
         "hype_score": 0,
+        "vibe": None,
     }
     if not text:
         return base
@@ -85,15 +192,18 @@ async def _classify_one(
 
     intent = response.choices["intent"].choice
     sentiment = response.choices["sentiment"].choice
+    vibe = response.choices["vibe"].choice
     hype_raw = float(response.scores["hype"].score)
 
     return {
         **base,
         "intent": intent,
         "sentiment": sentiment,
+        "vibe": vibe if vibe in VIBE_AXES else None,
         "hype_score": _hype_to_0_100(hype_raw),
         "intent_confidence": float(response.choices["intent"].confidence or 0),
         "sentiment_confidence": float(response.choices["sentiment"].confidence or 0),
+        "vibe_confidence": float(response.choices["vibe"].confidence or 0),
     }
 
 
@@ -106,13 +216,18 @@ async def classify_batch(
 
     Spam is JEV `intent=spam` only (no heuristic session memory).
     Returns per-message labels plus batch aggregates for the analytics panel.
+    Vibe histogram excludes spam.
     """
     if not messages:
+        radar = radar_from_vibe_counts(empty_vibe_counts())
         return {
             "classifications": [],
             "hype_score": 0,
             "sentiment": {"positive": 0, "neutral": 0, "negative": 0},
             "questions": [],
+            "spam_count": 0,
+            "message_count": 0,
+            **radar,
         }
 
     owns_client = client is None
@@ -134,17 +249,23 @@ async def classify_batch(
 
     classifications: list[dict[str, Any]] = []
     sentiment_counts = {"positive": 0, "neutral": 0, "negative": 0}
+    vibe_counts = empty_vibe_counts()
     hype_values: list[int] = []
     questions: list[dict[str, Any]] = []
+    spam_count = 0
 
     for item in results:
         classifications.append(item)
         if item.get("intent") == "spam":
+            spam_count += 1
             continue
         sent = item.get("sentiment") or "neutral"
         if sent in sentiment_counts:
             sentiment_counts[sent] += 1
         hype_values.append(int(item.get("hype_score") or 0))
+        vibe = item.get("vibe")
+        if vibe in vibe_counts:
+            vibe_counts[vibe] += 1
         if item.get("intent") == "question":
             questions.append(
                 {
@@ -155,12 +276,16 @@ async def classify_batch(
             )
 
     avg_hype = int(round(sum(hype_values) / len(hype_values))) if hype_values else 0
+    radar = radar_from_vibe_counts(vibe_counts)
 
     return {
         "classifications": classifications,
         "hype_score": avg_hype,
         "sentiment": sentiment_counts,
         "questions": questions,
+        "spam_count": spam_count,
+        "message_count": len(messages),
+        **radar,
     }
 
 
@@ -183,6 +308,7 @@ async def _run_all(
                     "intent": "hype/reaction",
                     "sentiment": "neutral",
                     "hype_score": 0,
+                    "vibe": None,
                     "error": str(result),
                 }
             )

@@ -2,12 +2,12 @@ import { backendUrl } from "@/lib/backend";
 
 export const dynamic = "force-dynamic";
 
-type Params = { params: Promise<{ videoId: string }> };
+type Params = { params: Promise<{ sessionId: string }> };
 
 export async function GET(_request: Request, { params }: Params) {
-  const { videoId } = await params;
+  const { sessionId } = await params;
   const upstream = await fetch(
-    backendUrl(`/api/streams/${encodeURIComponent(videoId)}/events`),
+    backendUrl(`/api/sessions/${encodeURIComponent(sessionId)}/chat/events`),
     {
       headers: { Accept: "text/event-stream" },
       cache: "no-store",

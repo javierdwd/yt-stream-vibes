@@ -1,0 +1,11 @@
+meta {
+  name: Stats events
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/sessions/{{sessionId}}/stats/events
+  body: none
+  auth: none
+}

@@ -2,13 +2,13 @@
 
 import { useEffect, useRef, useState } from "react";
 import {
-  streamEventsUrl,
+  chatEventsUrl,
   type ChatBatchEvent,
   type ChatMessage,
 } from "@/lib/api";
 
 type Props = {
-  videoId: string;
+  sessionId: string | null;
 };
 
 const MAX_MESSAGES = 200;
@@ -30,20 +30,25 @@ function mergeMessages(prev: ChatMessage[], batch: ChatMessage[]): ChatMessage[]
   return next.length > MAX_MESSAGES ? next.slice(-MAX_MESSAGES) : next;
 }
 
-export function IngestedChatFeed({ videoId }: Props) {
+export function IngestedChatFeed({ sessionId }: Props) {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [hype, setHype] = useState(0);
-  const [status, setStatus] = useState<"connecting" | "live" | "error">("connecting");
+  const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error">(
+    "idle",
+  );
   const [error, setError] = useState<string | null>(null);
-  const bottomRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setMessages([]);
-    setHype(0);
-    setStatus("connecting");
     setError(null);
 
-    const es = new EventSource(streamEventsUrl(videoId));
+    if (!sessionId) {
+      setStatus("idle");
+      return;
+    }
+
+    setStatus("connecting");
+    const es = new EventSource(chatEventsUrl(sessionId));
 
     es.onopen = () => setStatus("live");
 
@@ -56,12 +61,7 @@ export function IngestedChatFeed({ videoId }: Props) {
           return;
         }
         const batch = data.messages ?? [];
-        // Ignore empty heartbeats so hype/gauge don't reset during quiet chat.
         if (batch.length === 0) return;
-
-        if (typeof data.hype_score === "number") {
-          setHype(data.hype_score);
-        }
         setMessages((prev) => mergeMessages(prev, batch));
       } catch {
         setError("Bad SSE payload");
@@ -76,37 +76,39 @@ export function IngestedChatFeed({ videoId }: Props) {
     };
 
     return () => es.close();
-  }, [videoId]);
+  }, [sessionId]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    const el = listRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
   }, [messages]);
 
   return (
-    <section className="flex min-h-[420px] flex-col border border-border bg-surface lg:min-h-0">
-      <div className="flex items-center justify-between gap-2 border-b border-border px-3 py-2">
+    <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
           Ingested + JEV
         </span>
-        <div className="flex items-center gap-3">
-          <span className="font-mono text-[10px] tabular-nums text-accent">
-            hype {hype}
-          </span>
-          <span
-            className={`font-mono text-[10px] uppercase tracking-wider ${
-              status === "live"
-                ? "text-accent"
-                : status === "error"
-                  ? "text-live"
-                  : "text-muted"
-            }`}
-          >
-            {status === "live" ? "SSE · JEV" : status}
-          </span>
-        </div>
+        <span
+          className={`font-mono text-[10px] uppercase tracking-wider ${
+            status === "live"
+              ? "text-accent"
+              : status === "error"
+                ? "text-live"
+                : "text-muted"
+          }`}
+        >
+          {status === "live" ? "SSE · chat" : status}
+        </span>
       </div>
-      <div className="min-h-0 flex-1 overflow-y-auto bg-bg p-2 font-mono text-xs">
-        {error ? (
+      <div
+        ref={listRef}
+        className="min-h-0 flex-1 overflow-y-auto overscroll-contain bg-bg p-2 font-mono text-xs"
+      >
+        {!sessionId ? (
+          <p className="text-muted">Start a session to ingest chat…</p>
+        ) : error ? (
           <p className="text-live">{error}</p>
         ) : messages.length === 0 ? (
           <p className="text-muted">Waiting for messages…</p>
@@ -125,31 +127,37 @@ export function IngestedChatFeed({ videoId }: Props) {
                     <span className="text-[10px] uppercase tracking-wide text-live">
                       spam{m.spam_reason ? `:${m.spam_reason}` : ""}
                     </span>
-                  ) : m.intent ? (
-                    <span className="text-[10px] uppercase tracking-wide text-muted">
-                      {m.intent}
-                    </span>
-                  ) : null}
-                  {m.sentiment && !(m.spam || m.intent === "spam") ? (
-                    <span
-                      className={`text-[10px] uppercase tracking-wide ${sentimentClass(m.sentiment)}`}
-                    >
-                      {m.sentiment}
-                    </span>
-                  ) : null}
-                  {typeof m.hype_score === "number" &&
-                  !(m.spam || m.intent === "spam") ? (
-                    <span className="text-[10px] tabular-nums text-muted">
-                      h{m.hype_score}
-                    </span>
-                  ) : null}
+                  ) : (
+                    <>
+                      {m.vibe ? (
+                        <span className="text-[10px] uppercase tracking-wide text-muted">
+                          {m.vibe}
+                        </span>
+                      ) : m.intent ? (
+                        <span className="text-[10px] uppercase tracking-wide text-muted">
+                          {m.intent}
+                        </span>
+                      ) : null}
+                      {m.sentiment ? (
+                        <span
+                          className={`text-[10px] uppercase tracking-wide ${sentimentClass(m.sentiment)}`}
+                        >
+                          {m.sentiment}
+                        </span>
+                      ) : null}
+                      {typeof m.hype_score === "number" ? (
+                        <span className="text-[10px] tabular-nums text-muted">
+                          h{m.hype_score}
+                        </span>
+                      ) : null}
+                    </>
+                  )}
                 </div>
                 <p className="mt-0.5 break-words text-fg/90">{m.message}</p>
               </li>
             ))}
           </ul>
         )}
-        <div ref={bottomRef} />
       </div>
     </section>
   );

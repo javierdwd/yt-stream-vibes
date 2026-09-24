@@ -42,4 +42,5 @@ body {
   background: var(--bg);
   color: var(--fg);
   font-family: var(--font-syne), system-ui, sans-serif;
+  overflow: hidden;
 }
