@@ -1,0 +1,9 @@
+{
+  "version": "1",
+  "name": "yt-stream-vibes",
+  "type": "collection",
+  "ignore": [
+    "node_modules",
+    ".git"
+  ]
+}

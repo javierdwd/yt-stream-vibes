@@ -1,0 +1,16 @@
+meta {
+  name: Events
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{baseUrl}}/api/streams/{{videoId}}/events
+  body: none
+  auth: none
+}
+
+headers {
+  Accept: text/event-stream
+  Cache-Control: no-cache
+}
