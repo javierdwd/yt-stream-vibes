@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { IdleSessionGuard } from "@/components/idle-session-guard";
 import { IngestedChatFeed } from "@/components/ingested-chat-feed";
 import { VibeRadarPanel } from "@/components/vibe-radar-panel";
 import { clearSession, connectStream, type Platform } from "@/lib/api";
@@ -59,6 +60,19 @@ export function StreamRoom({ platform, streamId }: Props) {
     }
   }, []);
 
+  const onIdleDisconnect = useCallback(async () => {
+    const id = sessionRef.current;
+    if (!id) return;
+    setActionError(null);
+    try {
+      await clearSession(id);
+    } catch {
+      // Session may already be gone server-side.
+    } finally {
+      setSessionId(null);
+    }
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
 
@@ -100,6 +114,11 @@ export function StreamRoom({ platform, streamId }: Props) {
 
   return (
     <main className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3 md:gap-4 md:px-6 md:py-4">
+      <IdleSessionGuard
+        sessionId={sessionId}
+        onIdleDisconnect={onIdleDisconnect}
+        onReconnect={() => void startSession()}
+      />
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
         <div className="flex min-w-0 items-baseline gap-3">
           <Link
