@@ -8,14 +8,11 @@ import { useLives } from "@/hooks/use-api";
 export function LivesPanel() {
   const [input, setInput] = useState("");
   const [q, setQ] = useState("");
-  const [selectedId, setSelectedId] = useState<string | null>(null);
   const { data, isLoading, isFetching, error, refetch, isFetched } = useLives(q);
 
   useEffect(() => {
     const handle = window.setTimeout(() => {
-      const next = input.trim();
-      setQ(next);
-      setSelectedId(null);
+      setQ(input.trim());
     }, 350);
     return () => window.clearTimeout(handle);
   }, [input]);
@@ -64,11 +61,7 @@ export function LivesPanel() {
           Searching lives…
         </p>
       ) : (
-        <StreamStrip
-          streams={data?.streams ?? []}
-          selectedId={selectedId}
-          onSelect={setSelectedId}
-        />
+        <StreamStrip streams={data?.streams ?? []} />
       )}
     </section>
   );
