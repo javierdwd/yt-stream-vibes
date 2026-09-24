@@ -3,11 +3,12 @@
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { connectStream, fetchLives } from "@/lib/api";
 
-export function useLives(regionCode: string) {
+export function useLives(q: string) {
+  const query = q.trim();
   return useQuery({
-    queryKey: ["lives", regionCode],
-    queryFn: () => fetchLives(regionCode),
-    enabled: regionCode.length === 2,
+    queryKey: ["lives", query],
+    queryFn: () => fetchLives(query),
+    enabled: query.length >= 2,
   });
 }
 

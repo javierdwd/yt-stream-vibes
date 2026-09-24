@@ -9,7 +9,7 @@ export type LiveStream = {
 };
 
 export type LivesResponse = {
-  region_code: string;
+  q: string;
   streams: LiveStream[];
   detail?: string;
 };
@@ -29,15 +29,23 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     },
   });
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(body || `${res.status} ${res.statusText}`);
+    const text = await res.text().catch(() => "");
+    try {
+      const json = JSON.parse(text) as { detail?: unknown };
+      if (typeof json.detail === "string" && json.detail) {
+        throw new Error(json.detail);
+      }
+    } catch (err) {
+      if (err instanceof Error && !(err instanceof SyntaxError)) throw err;
+    }
+    throw new Error(text || `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
 }
 
-export function fetchLives(regionCode: string): Promise<LivesResponse> {
-  const q = new URLSearchParams({ region_code: regionCode });
-  return apiJson(`/api/lives?${q}`);
+export function fetchLives(q: string): Promise<LivesResponse> {
+  const params = new URLSearchParams({ q });
+  return apiJson(`/api/lives?${params}`);
 }
 
 export function connectStream(videoId: string): Promise<ConnectResponse> {

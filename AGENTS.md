@@ -72,13 +72,13 @@ Strong success criteria let you loop independently. Weak criteria ("make it work
 
 **One-liner:** Dashboard that lists top YouTube Live streams by country, streams live chat, and classifies messages in real time (sentiment, intent, hype) via JEV.
 
-**Core loop:** Pick a country → see Top 5 lives → select a stream → watch live chat metrics (hype gauge, sentiment breakdown, Q&A feed) update in real time.
+**Core loop:** Search live streams → select a stream → watch live chat metrics (hype gauge, sentiment breakdown, Q&A feed) update in real time.
 
 **Audience:** Stream operators, community managers, and analysts who need live chat signal without reading every message.
 
 ### MVP must-haves
 
-- Country selector (`regionCode`) → Top 5 live streams by view count
+- Live search (`q`) → up to 16 matching live streams (YouTube-style)
 - Stream cards: thumbnail, title, channel, concurrent viewers
 - Live chat ingest for the active `video_id`
 - JEV classification per micro-batch
@@ -158,13 +158,13 @@ server/
 
 ### YouTube Data API v3
 
-**Top lives by country** — `search.list`:
+**Live search** — `search.list`:
 
+- `q` = user search term (channel name, topic, etc.)
 - `eventType=live`
 - `type=video`
-- `order=viewCount`
-- `regionCode` = user-selected country
-- Return top **5** results
+- `order=relevance`
+- Return up to **16** results
 
 **Stream metrics** — `videos.list` with `part=liveStreamingDetails,statistics` (e.g. `concurrentViewers`).
 
@@ -191,8 +191,8 @@ Sub-second inference is a hard expectation; keep batches small and the wrapper t
 - App under `frontend/src/`, created with the latest stable Next.js
 - **Styling:** Tailwind CSS (utility-first); design tokens as CSS variables wired into Tailwind theme
 - Browser calls Next.js `/api/*` only (never FastAPI URL); SSE via `EventSource` on `/api/streams/{id}/events`
-- **Controls:** country dropdown (`regionCode`)
-- **Live feed:** Top 5 stream cards (thumbnail, title, channel, live viewers)
+- **Controls:** live search input (`q`)
+- **Live feed:** up to 16 stream cards (thumbnail, title, channel, live viewers)
 - **Analytics (active stream):**
   - Chat hype/temperature gauge (0–100)
   - Sentiment breakdown (positive / neutral / negative)
@@ -206,7 +206,7 @@ Trend anchor: **dark-first live ops / control-room dashboards** — high informa
 
 **Layout**
 
-- One primary composition: country control + Top 5 stream strip + analytics for the active stream
+- One primary composition: search control + stream strip + analytics for the active stream
 - Minimal chrome: thin 1px borders, tight padding, no heavy card stacks or decorative boxes
 - KPI / gauges first; Q&A feed as a dense scrolling column
 - Prefer CSS Grid density over whitespace-heavy marketing layouts
