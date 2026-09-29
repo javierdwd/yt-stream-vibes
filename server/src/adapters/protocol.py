@@ -26,6 +26,10 @@ class LiveSourceAdapter(Protocol):
         """Return normalized metadata for `stream_id` (video id or channel login)."""
         ...
 
+    async def list_top_lives(self, *, limit: int = 24) -> list[dict[str, Any]]:
+        """Return top live streams for discovery (order by concurrent viewers)."""
+        ...
+
     def stream_chat_batches(
         self,
         stream_id: str,

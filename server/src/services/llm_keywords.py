@@ -27,8 +27,39 @@ _ELONGATION = re.compile(r"(.)\1{2,}")
 _ALLOWED_LONG_LABELS = frozenset(
     {
         "risas (jaja)",
-        "problemas técnicos / lag",
     }
+)
+
+# Labels that must not appear unless chat literally discusses stream tech.
+_TECH_TOPIC = re.compile(
+    r"(?i)\b("
+    r"problema[s]?\s*t[eé]cnic\w*"
+    r"|tech(?:nical)?\s*issue[s]?"
+    r"|\blag(?:s|ead[oa]s?)?\b"
+    r"|buffer(?:ing|ea\w*)?"
+    r"|desync"
+    r")\b"
+)
+_TECH_EVIDENCE = re.compile(
+    r"(?i)\b("
+    r"lag(?:s|ead[oa]s?)?"
+    r"|buffer(?:ing|ea\w*)?"
+    r"|desync"
+    r"|congelad\w*"
+    r"|se\s+trab[ao]"
+    r"|travad\w*"
+    r"|sin\s+audio"
+    r"|no\s+se\s+escuch"
+    r"|no\s+se\s+oye"
+    r"|no\s+se\s+ve"
+    r"|audio\s+roto"
+    r"|mic\s+mute"
+    r"|corte[s]?\s+de\s+(?:luz|stream|audio|video)"
+    r"|can'?t\s+(?:hear|see)"
+    r"|stream\s+(?:down|lag)"
+    r"|technical\s+issue"
+    r"|problema[s]?\s*t[eé]cnic"
+    r")\b"
 )
 
 
@@ -93,8 +124,13 @@ def normalize_chat_message(text: str) -> str:
     return out
 
 
-def _sanitize_items(items: list[WordCloudItem]) -> list[dict[str, Any]]:
-    """Dedupe + drop oversized labels; no phrase-specific rewriting."""
+def _sanitize_items(
+    items: list[WordCloudItem],
+    *,
+    chat_blob: str = "",
+) -> list[dict[str, Any]]:
+    """Dedupe + drop oversized / unsupported labels; no phrase-specific rewriting."""
+    has_tech_evidence = bool(_TECH_EVIDENCE.search(chat_blob))
     seen: set[str] = set()
     result: list[dict[str, Any]] = []
     for item in items:
@@ -105,6 +141,8 @@ def _sanitize_items(items: list[WordCloudItem]) -> list[dict[str, Any]]:
         if key not in _ALLOWED_LONG_LABELS and (
             len(label.split()) > 3 or len(label) > 28
         ):
+            continue
+        if _TECH_TOPIC.search(label) and not has_tech_evidence:
             continue
         if key in seen:
             continue
@@ -147,9 +185,9 @@ async def extract_normalized_keywords(
         "1. Evidence first: a topic needs clear support in multiple chat lines "
         "(or one very strong repeated motif). Prefer fewer accurate topics over padding.\n"
         "2. Canonical merges only when chat clearly matches them — "
-        'laughter → "Risas (JAJA)"; common emotes → KEKW/POG/LUL/F; '
-        'explicit lag/buffer/audio/video breakage → "Problemas Técnicos / Lag". '
-        "Do not add a canonical label just because it exists in these rules.\n"
+        'laughter → "Risas (JAJA)"; common emotes → KEKW/POG/LUL/F. '
+        "Do NOT invent stream-tech topics (lag, buffering, audio/video issues, "
+        '"Problemas Técnicos") unless several chat lines explicitly report them.\n'
         "3. Every topic must be semantically unique — merge synonyms/variants.\n"
         "4. Topic head only: prefer ONE noun/emote/name (max 3 words, ~24 chars). "
         "Convert questions/mini-phrases into the underlying topic; never leave "
@@ -187,4 +225,4 @@ async def extract_normalized_keywords(
         if refusal:
             logger.warning("OpenAI keyword extract refused: %s", refusal)
         return []
-    return _sanitize_items(parsed.word_cloud)
+    return _sanitize_items(parsed.word_cloud, chat_blob=chat_blob)

@@ -2,6 +2,23 @@
 
 export type Platform = "youtube" | "twitch";
 
+export type LiveStream = {
+  platform: Platform;
+  stream_id: string;
+  video_id?: string;
+  title: string;
+  channel: string;
+  thumbnail_url: string;
+  concurrent_viewers: number | null;
+  live: boolean;
+};
+
+export type LivesResponse = {
+  streams: LiveStream[];
+  count: number;
+  detail?: string;
+};
+
 export type ResolveResponse = {
   platform: Platform;
   stream_id: string;
@@ -99,6 +116,14 @@ async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(text || `${res.status} ${res.statusText}`);
   }
   return res.json() as Promise<T>;
+}
+
+export function fetchLives(limit = 24): Promise<LivesResponse> {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    platform: "youtube",
+  });
+  return apiJson(`/api/lives?${params}`);
 }
 
 export function resolveStreamUrl(url: string): Promise<ResolveResponse> {

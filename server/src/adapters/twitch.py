@@ -20,6 +20,10 @@ class TwitchAdapter:
         except twitch_helix.TwitchAPIError as exc:
             raise LiveSourceError(str(exc), status_code=exc.status_code) from exc
 
+    async def list_top_lives(self, *, limit: int = 24) -> list[dict[str, Any]]:
+        # Home discovery is YouTube LatAm for now.
+        return []
+
     def stream_chat_batches(
         self,
         stream_id: str,

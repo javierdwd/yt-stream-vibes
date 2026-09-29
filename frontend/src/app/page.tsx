@@ -1,3 +1,4 @@
+import { LiveStreamsPanel } from "@/components/live-streams-panel";
 import { UrlPastePanel } from "@/components/url-paste-panel";
 
 export default function Home() {
@@ -13,6 +14,7 @@ export default function Home() {
       </header>
 
       <UrlPastePanel />
+      <LiveStreamsPanel />
     </main>
   );
 }

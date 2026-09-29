@@ -29,17 +29,20 @@ export function UrlPastePanel() {
   }
 
   return (
-    <section className="flex min-h-0 flex-1 flex-col justify-center gap-6">
+    <section className="shrink-0 border-b border-border pb-6">
       <div className="max-w-2xl">
-        <h2 className="text-xl font-semibold tracking-tight text-fg md:text-2xl">
+        <h2 className="text-lg font-semibold tracking-tight text-fg md:text-xl">
           Paste a live URL
         </h2>
-        <p className="mt-2 font-mono text-xs text-muted">
-          Drop a live stream link to open the Signal Room.
+        <p className="mt-1 font-mono text-[11px] text-muted">
+          Or pick a top live below to open the Signal Room.
         </p>
       </div>
 
-      <form onSubmit={(e) => void onSubmit(e)} className="flex max-w-2xl flex-col gap-3">
+      <form
+        onSubmit={(e) => void onSubmit(e)}
+        className="mt-4 flex max-w-2xl flex-col gap-3 sm:flex-row sm:items-center"
+      >
         <label className="sr-only" htmlFor="stream-url">
           Stream URL
         </label>
@@ -52,21 +55,19 @@ export function UrlPastePanel() {
           placeholder="https://www.youtube.com/watch?v=…"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
-          className="h-11 w-full border border-border bg-surface px-3 font-mono text-sm text-fg outline-none transition-colors duration-200 placeholder:text-muted/70 focus:border-accent"
+          className="h-10 w-full border border-border bg-surface px-3 font-mono text-sm text-fg outline-none transition-colors duration-200 placeholder:text-muted/70 focus:border-accent"
         />
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="submit"
-            disabled={busy || !url.trim()}
-            className="h-9 border border-border px-4 font-mono text-xs uppercase tracking-wider text-accent transition-colors duration-200 hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            {busy ? "Resolving…" : "Open stream"}
-          </button>
-          {error ? (
-            <p className="font-mono text-xs text-live">{error}</p>
-          ) : null}
-        </div>
+        <button
+          type="submit"
+          disabled={busy || !url.trim()}
+          className="h-10 shrink-0 border border-border px-4 font-mono text-xs uppercase tracking-wider text-accent transition-colors duration-200 hover:border-accent disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          {busy ? "Resolving…" : "Open"}
+        </button>
       </form>
+      {error ? (
+        <p className="mt-2 font-mono text-xs text-live">{error}</p>
+      ) : null}
     </section>
   );
 }

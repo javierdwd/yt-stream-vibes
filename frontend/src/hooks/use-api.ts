@@ -1,4 +1,4 @@
-import { connectStream, type Platform } from "@/lib/api";
+import { connectStream, fetchLives, type Platform } from "@/lib/api";
 import { useQuery } from "@tanstack/react-query";
 
 export function useConnect(platform: Platform, streamId: string) {
@@ -7,6 +7,15 @@ export function useConnect(platform: Platform, streamId: string) {
     queryFn: () => connectStream(platform, streamId),
     enabled: Boolean(platform && streamId),
     staleTime: Infinity,
+    retry: 1,
+  });
+}
+
+export function useLives(limit = 24) {
+  return useQuery({
+    queryKey: ["lives", limit],
+    queryFn: () => fetchLives(limit),
+    staleTime: 60_000,
     retry: 1,
   });
 }

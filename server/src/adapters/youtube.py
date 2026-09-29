@@ -20,6 +20,14 @@ class YouTubeAdapter:
         except youtube_service.YouTubeAPIError as exc:
             raise LiveSourceError(str(exc), status_code=exc.status_code) from exc
 
+    async def list_top_lives(self, *, limit: int = 24) -> list[dict[str, Any]]:
+        try:
+            return await youtube_service.list_top_live_streams(limit=limit)
+        except youtube_service.YouTubeConfigError as exc:
+            raise LiveSourceError(str(exc), status_code=503) from exc
+        except youtube_service.YouTubeAPIError as exc:
+            raise LiveSourceError(str(exc), status_code=exc.status_code) from exc
+
     def stream_chat_batches(
         self,
         stream_id: str,
