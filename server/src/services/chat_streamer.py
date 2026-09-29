@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import errno
 import logging
 import threading
@@ -12,8 +13,40 @@ from typing import Any
 
 import httpx
 import pytchat
+from pytchat import util as pytchat_util
+
+from src.services import youtube_service
 
 logger = logging.getLogger(__name__)
+
+_pytchat_channel_override = threading.local()
+_pytchat_channel_patch_lock = threading.Lock()
+_pytchat_get_channelid_orig = pytchat_util.get_channelid
+
+
+def _ensure_pytchat_channel_patch() -> None:
+    with _pytchat_channel_patch_lock:
+        if pytchat_util.get_channelid is _pytchat_get_channelid_orig:
+
+            def get_channelid(client: Any, vid: str) -> str:
+                override = getattr(_pytchat_channel_override, "value", None)
+                if override:
+                    return str(override)
+                return _pytchat_get_channelid_orig(client, vid)
+
+            pytchat_util.get_channelid = get_channelid
+
+
+@contextlib.contextmanager
+def _pytchat_channel_id(channel_id: str | None):
+    _ensure_pytchat_channel_patch()
+    if channel_id:
+        _pytchat_channel_override.value = channel_id
+    try:
+        yield
+    finally:
+        if hasattr(_pytchat_channel_override, "value"):
+            del _pytchat_channel_override.value
 
 _MIN_BACKOFF_S = 2.0
 _MAX_BACKOFF_S = 30.0
@@ -61,6 +94,7 @@ def _poll_sync(
     loop: asyncio.AbstractEventLoop,
     stop: threading.Event,
     *,
+    channel_id: str | None,
     max_batch_size: int,
     flush_interval_s: float,
 ) -> None:
@@ -82,7 +116,8 @@ def _poll_sync(
             chat = None
             got_messages = False
             try:
-                chat = pytchat.create(video_id=video_id, interruptable=False)
+                with _pytchat_channel_id(channel_id):
+                    chat = pytchat.create(video_id=video_id, interruptable=False)
                 if not chat.is_alive():
                     reason = _pytchat_death_reason(chat)
                     logger.warning(
@@ -174,6 +209,20 @@ async def stream_chat_batches(
     Flush when `max_batch_size` is reached or every `flush_interval_s` seconds.
     Runs pytchat on a background thread so the FastAPI event loop stays free.
     """
+    channel_id = await youtube_service.fetch_video_channel_id(video_id)
+    if channel_id:
+        logger.info(
+            "pytchat channel_id from Data API video=%s channel=%s",
+            video_id,
+            channel_id,
+        )
+    else:
+        logger.warning(
+            "pytchat will scrape channel id from YouTube HTML video=%s "
+            "(set YOUTUBE_API_KEY on server for datacenter reliability)",
+            video_id,
+        )
+
     loop = asyncio.get_running_loop()
     queue: asyncio.Queue[list[dict[str, Any]] | None] = asyncio.Queue()
     stop = threading.Event()
@@ -181,6 +230,7 @@ async def stream_chat_batches(
         target=_poll_sync,
         args=(video_id, queue, loop, stop),
         kwargs={
+            "channel_id": channel_id,
             "max_batch_size": max_batch_size,
             "flush_interval_s": flush_interval_s,
         },

@@ -137,6 +137,38 @@ async def resolve_stream(video_id: str) -> dict[str, Any]:
         return _to_stream(vid, items[0])
 
 
+async def fetch_video_channel_id(video_id: str) -> str | None:
+    """Return snippet.channelId for live chat setup (1 videos.list quota unit).
+
+    Used when pytchat cannot scrape channel id from YouTube HTML (common on
+    datacenter IPs). Returns None if the key is missing or the call fails.
+    """
+    vid = (video_id or "").strip()
+    if not vid:
+        return None
+    try:
+        key = _api_key()
+    except YouTubeConfigError:
+        return None
+
+    async with httpx.AsyncClient(base_url=YOUTUBE_API_BASE, timeout=20.0) as client:
+        try:
+            res = await client.get(
+                "/videos",
+                params={"part": "snippet", "id": vid, "key": key},
+            )
+            res.raise_for_status()
+        except httpx.HTTPError:
+            return None
+
+    items = res.json().get("items") or []
+    if not items:
+        return None
+    snippet = items[0].get("snippet") or {}
+    cid = (snippet.get("channelId") or "").strip()
+    return cid or None
+
+
 def _video_ids_from_search(payload: dict[str, Any]) -> list[str]:
     ids: list[str] = []
     for item in payload.get("items") or []:
