@@ -167,6 +167,11 @@ async def _kill_process(proc: asyncio.subprocess.Process | None) -> None:
         pass
 
 
+# Web client hits "page needs to be reloaded" on datacenter IPs.
+# Innertube clients skip most of that challenge.
+_PLAYER_CLIENTS = ("android", "ios", "tv", "web")
+
+
 async def iter_pcm_chunks(
     video_id: str,
     stop_event: asyncio.Event,
@@ -174,61 +179,88 @@ async def iter_pcm_chunks(
     """Yield s16le mono PCM chunks from a YouTube Live stream."""
     url = youtube_watch_url(video_id)
     auth = _ytdlp_auth_args()
-    # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
-    # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
-    pipeline = (
-        f"yt-dlp -f bestaudio/best -o - --no-playlist --quiet --no-warnings "
-        f"{auth}{shlex.quote(url)} "
-        f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
-        f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
-    )
 
-    proc: asyncio.subprocess.Process | None = None
-    stderr_task: asyncio.Task[None] | None = None
-    try:
-        proc = await asyncio.create_subprocess_shell(
-            pipeline,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+    for client in _PLAYER_CLIENTS:
+        if stop_event.is_set():
+            return
+        extractor = f"youtube:player_client={client}"
+        # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
+        # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
+        pipeline = (
+            f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
+            f"--extractor-args {shlex.quote(extractor)} "
+            f"{auth}{shlex.quote(url)} "
+            f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
+            f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
         )
-        assert proc.stdout is not None
-        assert proc.stderr is not None
+        logger.info("Audio probe video=%s player_client=%s", video_id, client)
 
-        async def _drain_stderr() -> None:
-            assert proc is not None and proc.stderr is not None
-            while True:
-                line = await proc.stderr.readline()
-                if not line:
+        proc: asyncio.subprocess.Process | None = None
+        stderr_task: asyncio.Task[None] | None = None
+        got_audio = False
+        try:
+            proc = await asyncio.create_subprocess_shell(
+                pipeline,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            assert proc.stdout is not None
+            assert proc.stderr is not None
+
+            async def _drain_stderr() -> None:
+                assert proc is not None and proc.stderr is not None
+                while True:
+                    line = await proc.stderr.readline()
+                    if not line:
+                        break
+                    msg = line.decode("utf-8", errors="replace").strip()
+                    if msg:
+                        logger.warning(
+                            "yt-dlp/ffmpeg video=%s client=%s: %s",
+                            video_id,
+                            client,
+                            msg,
+                        )
+
+            stderr_task = asyncio.create_task(_drain_stderr())
+
+            while not stop_event.is_set():
+                try:
+                    pcm = await asyncio.wait_for(
+                        _read_exact(proc.stdout, _CHUNK_BYTES),
+                        timeout=_CHUNK_SECONDS + 15.0,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Audio chunk read timed out video=%s client=%s",
+                        video_id,
+                        client,
+                    )
                     break
-                msg = line.decode("utf-8", errors="replace").strip()
-                if msg:
-                    logger.warning("yt-dlp/ffmpeg video=%s: %s", video_id, msg)
+                if len(pcm) < _CHUNK_BYTES // 2:
+                    break
+                got_audio = True
+                if len(pcm) < _CHUNK_BYTES:
+                    pcm = pcm + b"\x00" * (_CHUNK_BYTES - len(pcm))
+                yield pcm
+        finally:
+            await _kill_process(proc)
+            if stderr_task is not None:
+                stderr_task.cancel()
+                try:
+                    await stderr_task
+                except asyncio.CancelledError:
+                    pass
 
-        stderr_task = asyncio.create_task(_drain_stderr())
+        if got_audio:
+            return
 
-        while not stop_event.is_set():
-            try:
-                pcm = await asyncio.wait_for(
-                    _read_exact(proc.stdout, _CHUNK_BYTES),
-                    timeout=_CHUNK_SECONDS + 15.0,
-                )
-            except asyncio.TimeoutError:
-                logger.warning("Audio chunk read timed out video=%s", video_id)
-                break
-            if len(pcm) < _CHUNK_BYTES // 2:
-                break
-            if len(pcm) < _CHUNK_BYTES:
-                # Pad short final/partial chunk so Whisper still gets a buffer.
-                pcm = pcm + b"\x00" * (_CHUNK_BYTES - len(pcm))
-            yield pcm
-    finally:
-        await _kill_process(proc)
-        if stderr_task is not None:
-            stderr_task.cancel()
-            try:
-                await stderr_task
-            except asyncio.CancelledError:
-                pass
+    logger.warning(
+        "YouTube audio blocked video=%s (datacenter / bot-check). "
+        "Chat + keywords still run; STT only works from a residential IP "
+        "or with fresh cookies that YouTube accepts.",
+        video_id,
+    )
 
 
 async def iter_streamer_events(
