@@ -68,6 +68,7 @@ export type StatsEvent = {
   streamer_topic?: string | null;
   chat_topic?: string | null;
   theme_oneliner?: string | null;
+  word_cloud?: Array<{ text: string; value: number }>;
   alignment_score?: number | null;
   alignment_label?: string | null;
   audio_error?: string | null;

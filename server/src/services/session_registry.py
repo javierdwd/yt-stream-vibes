@@ -15,6 +15,7 @@ from typesafe_sdk import AsyncTypeSafeClient
 
 from src.adapters import get_live_adapter
 from src.services.alignment_engine import (
+    CHAT_WINDOW_S,
     SPEECH_WINDOW_S,
     join_recent_speech,
     recent_chat_lines,
@@ -28,12 +29,15 @@ from src.services.jev_classifier import (
     empty_vibe_counts,
     radar_from_vibe_counts,
 )
+from src.services.llm_keywords import extract_normalized_keywords
 from src.services.theme_summarizer import summarize_topics
 
 logger = logging.getLogger(__name__)
 
 _CLASSIFY_QUEUE_SIZE = 32
 _SUBSCRIBER_QUEUE_SIZE = 64
+_WORD_CLOUD_INTERVAL_S = 5.0
+_WORD_CLOUD_MIN_MESSAGES = 8
 Channel = Literal["chat", "stats"]
 
 
@@ -92,6 +96,8 @@ class AnalysisSession:
     streamer_topic: str | None = None
     chat_topic: str | None = None
     theme_oneliner: str | None = None
+    word_cloud: list[dict[str, Any]] = field(default_factory=list)
+    last_word_cloud_at: float = 0.0
     alignment_score: int | None = None
     alignment_label: str | None = None
     audio_error: str | None = None
@@ -211,37 +217,22 @@ class SessionRegistry:
         speech_cut = now - SPEECH_WINDOW_S - 5.0
         while session.speech_chunks and session.speech_chunks[0][0] < speech_cut:
             session.speech_chunks.popleft()
-        chat_cut = now - SPEECH_WINDOW_S - 5.0
+        # Keep chat long enough for alignment + word-cloud history (not speech window).
+        chat_cut = now - CHAT_WINDOW_S - 5.0
         while session.recent_chat and session.recent_chat[0].ts < chat_cut:
             session.recent_chat.popleft()
 
-    async def _refresh_topic_alignment(
+    async def _refresh_openai_signals(
         self,
         session: AnalysisSession,
-        client: AsyncTypeSafeClient,
         now: float,
     ) -> None:
+        """Theme + word cloud via OpenAI (independent of JEV availability)."""
         self._prune_sync_buffers(session, now)
         speech = join_recent_speech(list(session.speech_chunks), now=now)
         chat_lines = recent_chat_lines(list(session.recent_chat), now=now)
         if not speech and not chat_lines:
             return
-
-        if speech and chat_lines:
-            try:
-                result = await classify_topic_sync(
-                    streamer_speech=speech,
-                    chat_lines=chat_lines,
-                    client=client,
-                )
-            except Exception:
-                logger.exception(
-                    "Topic sync classify failed session=%s", session.session_id
-                )
-                result = {"skipped": True}
-            if not result.get("skipped"):
-                session.alignment_score = result.get("alignment_score")
-                session.alignment_label = result.get("alignment_label")
 
         try:
             topics = await summarize_topics(
@@ -261,6 +252,37 @@ class SessionRegistry:
         except Exception:
             logger.exception(
                 "Theme summarize failed session=%s", session.session_id
+            )
+
+        try:
+            due = (
+                session.last_word_cloud_at <= 0
+                or (now - session.last_word_cloud_at) >= _WORD_CLOUD_INTERVAL_S
+            )
+            if due:
+                # Full chat history window (60s / up to 80 lines) — not the thin
+                # speech-aligned slice alone, so weights reflect volume.
+                cloud_lines = recent_chat_lines(
+                    list(session.recent_chat),
+                    now=now,
+                    window_s=CHAT_WINDOW_S,
+                )
+                chat_msgs: list[str] = []
+                for ln in cloud_lines:
+                    msg = (ln or "").strip()
+                    if ": " in msg:
+                        msg = msg.split(": ", 1)[-1].strip()
+                    if msg:
+                        chat_msgs.append(msg)
+                if len(chat_msgs) < _WORD_CLOUD_MIN_MESSAGES:
+                    return
+                keywords = await extract_normalized_keywords(chat_msgs, speech)
+                session.last_word_cloud_at = now
+                if keywords:
+                    session.word_cloud = keywords
+        except Exception:
+            logger.exception(
+                "Keyword extract failed session=%s", session.session_id
             )
 
     def _ingest_classifications(
@@ -335,6 +357,7 @@ class SessionRegistry:
             "streamer_topic": session.streamer_topic,
             "chat_topic": session.chat_topic,
             "theme_oneliner": session.theme_oneliner,
+            "word_cloud": session.word_cloud,
             "alignment_score": session.alignment_score,
             "alignment_label": session.alignment_label,
             **radar,
@@ -423,9 +446,46 @@ class SessionRegistry:
                 chunk_ts: float,
                 client: AsyncTypeSafeClient,
             ) -> None:
-                """JEV vibe + topic/theme — off the Whisper hot path."""
+                """Topic/keywords + JEV vibe — off the Whisper hot path."""
                 if session.stop_event.is_set():
                     return
+                # OpenAI first; publish before JEV so 402 retries cannot starve UI.
+                try:
+                    await self._refresh_openai_signals(session, chunk_ts)
+                    self._publish_stats(session, time.monotonic())
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception(
+                        "OpenAI followup failed session=%s",
+                        session.session_id,
+                    )
+
+                speech = join_recent_speech(
+                    list(session.speech_chunks), now=chunk_ts
+                )
+                chat_lines = recent_chat_lines(
+                    list(session.recent_chat), now=chunk_ts
+                )
+                if speech and chat_lines:
+                    try:
+                        result = await classify_topic_sync(
+                            streamer_speech=speech,
+                            chat_lines=chat_lines,
+                            client=client,
+                        )
+                        if not result.get("skipped"):
+                            session.alignment_score = result.get("alignment_score")
+                            session.alignment_label = result.get("alignment_label")
+                            self._publish_stats(session, time.monotonic())
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.exception(
+                            "Topic sync classify failed session=%s",
+                            session.session_id,
+                        )
+
                 msg = {
                     "id": f"streamer-{int(chunk_ts * 1000)}",
                     "author": "streamer",
@@ -440,6 +500,7 @@ class SessionRegistry:
                         counts[vibe] = 1
                     session.streamer_vibe = vibe if vibe in VIBE_AXES else None
                     session.streamer_vibe_counts = counts
+                    self._publish_stats(session, time.monotonic())
                 except asyncio.CancelledError:
                     raise
                 except Exception:
@@ -447,16 +508,6 @@ class SessionRegistry:
                         "JEV streamer classify failed session=%s",
                         session.session_id,
                     )
-                try:
-                    await self._refresh_topic_alignment(session, client, chunk_ts)
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.exception(
-                        "Alignment followup failed session=%s",
-                        session.session_id,
-                    )
-                self._publish_stats(session, time.monotonic())
 
             try:
                 async with AsyncTypeSafeClient() as audio_client:
@@ -578,6 +629,17 @@ class SessionRegistry:
                     classifications = metrics.get("classifications") or []
                     if not metrics.get("error"):
                         self._ingest_classifications(session, classifications, now)
+                    else:
+                        # Still buffer chat text for topics/keywords when JEV is down.
+                        for msg in batch:
+                            text = (msg.get("message") or "").strip()
+                            if not text:
+                                continue
+                            author = (msg.get("author") or "").strip() or "anon"
+                            session.recent_chat.append(
+                                _ChatSnippet(ts=now, line=f"{author}: {text}")
+                            )
+                        self._prune_sync_buffers(session, now)
 
                     chat_payload: dict[str, Any] = {
                         "session_id": session.session_id,

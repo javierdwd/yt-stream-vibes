@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactECharts from "echarts-for-react";
 import type { EChartsOption } from "echarts";
+import { WordCloud, type Word } from "@isoterik/react-word-cloud";
 import { statsEventsUrl, type StatsEvent } from "@/lib/api";
 
 type Props = {
@@ -27,12 +28,31 @@ const EMPTY_LABELS = [
   "Curiosity",
 ];
 
+const WORD_FILL = ["#3dffb5", "#e8eef4", "#8b9aab", "#ff5c7a"] as const;
+
 export function VibeRadarPanel({ sessionId }: Props) {
   const [stats, setStats] = useState<StatsEvent | null>(null);
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error">(
     "idle",
   );
   const [error, setError] = useState<string | null>(null);
+  const cloudHostRef = useRef<HTMLDivElement | null>(null);
+  const [cloudSize, setCloudSize] = useState({ width: 0, height: 0 });
+
+  useEffect(() => {
+    const el = cloudHostRef.current;
+    if (!el) {
+      setCloudSize({ width: 0, height: 0 });
+      return;
+    }
+    const update = () => {
+      setCloudSize({ width: el.clientWidth, height: el.clientHeight });
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [sessionId, stats?.word_cloud?.length ?? 0]);
 
   useEffect(() => {
     setStats(null);
@@ -88,6 +108,30 @@ export function VibeRadarPanel({ sessionId }: Props) {
     typeof stats?.spam_rate === "number"
       ? Math.round(stats.spam_rate * 100)
       : null;
+  const wordCloudKey = JSON.stringify(stats?.word_cloud ?? []);
+  const words: Word[] = useMemo(() => {
+    const raw = JSON.parse(wordCloudKey) as Array<{ text: string; value: number }>;
+    return raw.map((w) => ({ text: w.text, value: w.value }));
+  }, [wordCloudKey]);
+  const wordMin = words.reduce(
+    (m, w) => Math.min(m, w.value),
+    Number.POSITIVE_INFINITY,
+  );
+  const wordMax = words.reduce(
+    (m, w) => Math.max(m, w.value),
+    Number.NEGATIVE_INFINITY,
+  );
+  // Concrete family for canvas measure + SVG paint (CSS vars break d3 layout → overlap).
+  const cloudFont = "JetBrains Mono, ui-monospace, monospace";
+  const resolveFontSize = (word: Word) => {
+    const span = Math.min(cloudSize.width, cloudSize.height);
+    const minPx = Math.max(12, Math.round(span * 0.08));
+    const maxPx = Math.max(minPx + 6, Math.round(span * 0.22));
+    if (!Number.isFinite(wordMin) || !Number.isFinite(wordMax)) return minPx;
+    if (wordMax <= wordMin) return Math.round((minPx + maxPx) / 2);
+    const t = (word.value - wordMin) / (wordMax - wordMin);
+    return Math.round(minPx + t * (maxPx - minPx));
+  };
 
   const radarOption = useMemo<EChartsOption>(
     () => ({
@@ -133,7 +177,8 @@ export function VibeRadarPanel({ sessionId }: Props) {
       grid: {
         left: 8,
         right: 12,
-        top: 8,
+        // Room for bar value labels above the peak so they aren't clipped.
+        top: 22,
         bottom: 24,
         containLabel: true,
       },
@@ -261,7 +306,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 {stats?.chat_topic ?? "—"}
               </p>
             </div>
-            <div className="grid min-h-0 flex-1 grid-rows-2 gap-2">
+            <div className="grid min-h-[220px] flex-[1.15] grid-rows-2 gap-2">
               <div className="min-h-0">
                 <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
                   Mix %
@@ -283,6 +328,39 @@ export function VibeRadarPanel({ sessionId }: Props) {
                   opts={{ renderer: "canvas" }}
                   notMerge
                 />
+              </div>
+            </div>
+            <div className="flex min-h-[180px] flex-1 flex-col overflow-hidden border border-border bg-surface/40">
+              <p className="shrink-0 px-2 pt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
+                Keywords
+              </p>
+              <div ref={cloudHostRef} className="relative min-h-0 flex-1 px-1 pb-1">
+                {words.length === 0 ? (
+                  <p className="px-1 pt-2 font-mono text-[10px] text-muted">
+                    Waiting for keywords…
+                  </p>
+                ) : cloudSize.width > 0 && cloudSize.height > 0 ? (
+                  <WordCloud
+                    words={words}
+                    width={Math.floor(cloudSize.width)}
+                    height={Math.floor(cloudSize.height)}
+                    font={cloudFont}
+                    fontWeight="600"
+                    fontSize={resolveFontSize}
+                    spiral="archimedean"
+                    rotate={() => 0}
+                    padding={3}
+                    fill={(_word, index) => WORD_FILL[index % WORD_FILL.length]}
+                    svgProps={{
+                      style: {
+                        display: "block",
+                        width: "100%",
+                        height: "100%",
+                      },
+                      "aria-label": "Chat keyword word cloud",
+                    }}
+                  />
+                ) : null}
               </div>
             </div>
           </>
