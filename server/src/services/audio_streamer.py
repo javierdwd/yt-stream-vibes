@@ -100,6 +100,16 @@ def _ytdlp_proxy_args() -> str:
     return f"--proxy {shlex.quote(proxy)} "
 
 
+def _proxy_log_host() -> str:
+    raw = _env("YTDLP_PROXY", "") or _env("HTTPS_PROXY", "") or _env("HTTP_PROXY", "")
+    if not raw:
+        return "none"
+    # Never log user:pass
+    if "@" in raw:
+        return raw.rsplit("@", 1)[-1]
+    return raw.split("://", 1)[-1]
+
+
 def audio_prereqs() -> str | None:
     """Return an error string if ffmpeg/yt-dlp are missing, else None."""
     missing: list[str] = []
@@ -197,6 +207,13 @@ async def iter_pcm_chunks(
     auth = _ytdlp_auth_args()
     js = _ytdlp_js_args()
     proxy = _ytdlp_proxy_args()
+    logger.info(
+        "Audio start video=%s proxy=%s cookies=%s deno=%s",
+        video_id,
+        _proxy_log_host(),
+        "yes" if auth else "no",
+        "yes" if "deno" in js else "no",
+    )
 
     for client in _PLAYER_CLIENTS:
         if stop_event.is_set():
