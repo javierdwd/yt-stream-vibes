@@ -1,8 +1,18 @@
-# AWS + Tailscale exit node: container uses the host network so yt-dlp
-# exits through the Mac. Nginx should proxy to 127.0.0.1:8000 (not :2000).
+# AWS + Tailscale exit node. Binds 2000 on the host (same as the old
+# 127.0.0.1:2000 mapping) so nginx does not need to change.
 #
+#   docker compose down
 #   docker compose -f docker-compose.yml -f docker-compose.aws.yml up -d --build
 services:
   api:
     network_mode: host
     ports: []
+    command:
+      [
+        "uvicorn",
+        "src.main:app",
+        "--host",
+        "127.0.0.1",
+        "--port",
+        "2000",
+      ]
