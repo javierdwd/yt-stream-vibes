@@ -207,7 +207,7 @@ async def iter_pcm_chunks(
     auth = _ytdlp_auth_args()
     js = _ytdlp_js_args()
     proxy = _ytdlp_proxy_args()
-    logger.info(
+    logger.warning(
         "Audio start video=%s proxy=%s cookies=%s deno=%s",
         video_id,
         _proxy_log_host(),
@@ -228,7 +228,7 @@ async def iter_pcm_chunks(
             f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
             f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
         )
-        logger.info("Audio probe video=%s player_client=%s", video_id, client)
+        logger.warning("Audio probe video=%s player_client=%s", video_id, client)
 
         proc: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
