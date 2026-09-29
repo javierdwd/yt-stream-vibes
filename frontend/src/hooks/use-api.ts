@@ -15,7 +15,7 @@ export function useLives(limit = 24) {
   return useQuery({
     queryKey: ["lives", limit],
     queryFn: () => fetchLives(limit),
-    staleTime: 60_000,
+    staleTime: 300_000,
     retry: 1,
   });
 }

@@ -12,7 +12,7 @@ import httpx
 
 YOUTUBE_API_BASE = "https://www.googleapis.com/youtube/v3"
 DEFAULT_LIMIT = 24
-_LIVES_CACHE_TTL_S = 60.0
+_LIVES_CACHE_TTL_S = 300.0
 
 # Major LatAm markets. search.list needs a `q`; regionCode alone returns [].
 # One query per region; merge + rank by concurrent viewers.
@@ -32,7 +32,7 @@ _CHAT_ENGAGEMENT_TOP_N = 8
 _CHAT_SAMPLE_MAX_RESULTS = 200
 
 # In-memory top-lives cache (process-local). search.list is expensive (~100
-# quota units per call × regions).
+# quota units per call × regions). TTL 5m for demos / quota headroom.
 _lives_cache: list[dict[str, Any]] | None = None
 _lives_cache_at: float = 0.0
 _lives_cache_lock = asyncio.Lock()
@@ -477,7 +477,7 @@ async def _fetch_top_live_streams(*, limit: int = DEFAULT_LIMIT) -> list[dict[st
 
 
 async def list_top_live_streams(*, limit: int = DEFAULT_LIMIT) -> list[dict[str, Any]]:
-    """Top LatAm lives, biased to chatty streams among viewer leaders (cached ~60s)."""
+    """Top LatAm lives, biased to chatty streams among viewer leaders (cached ~5m)."""
     global _lives_cache, _lives_cache_at
 
     cap = max(1, min(limit, DEFAULT_LIMIT))
