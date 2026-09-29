@@ -1,7 +1,7 @@
 type Props = {
   className?: string;
   /** Visual height in CSS px. Use 20 | 24 | 28 | 32 (have matching @2x assets). */
-  height?: 20 | 24 | 28 | 32;
+  height?: 16 | 20 | 24 | 28 | 32;
 };
 
 /** Ink-tight master is 500×65. */
