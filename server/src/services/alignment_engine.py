@@ -10,10 +10,10 @@ AlignmentLabel = Literal[
     "Off Topic / Disconnected",
 ]
 
-# How much recent speech/chat to feed JEV for topic sync.
+# How much recent speech/chat to feed JEV / word cloud / theme.
 SPEECH_WINDOW_S = 20.0
-CHAT_WINDOW_S = 60.0
-MAX_CHAT_LINES = 80
+CHAT_WINDOW_S = 120.0
+MAX_CHAT_LINES = 150
 
 
 def label_for_score(score: int) -> AlignmentLabel:

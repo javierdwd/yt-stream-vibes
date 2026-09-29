@@ -260,7 +260,7 @@ class SessionRegistry:
                 or (now - session.last_word_cloud_at) >= _WORD_CLOUD_INTERVAL_S
             )
             if due:
-                # Full chat history window (60s / up to 80 lines) — not the thin
+                # Full chat history window (120s / up to 150 lines) — not the thin
                 # speech-aligned slice alone, so weights reflect volume.
                 cloud_lines = recent_chat_lines(
                     list(session.recent_chat),

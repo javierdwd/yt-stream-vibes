@@ -94,8 +94,8 @@ class WordCloudResponse(BaseModel):
     word_cloud: list[WordCloudItem] = Field(
         default_factory=list,
         description=(
-            "Evidence-backed unique topics only. Empty list is fine if chat "
-            "has no clear recurring motifs."
+            "Evidence-backed unique topics. Aim for 8–20 when chat is busy; "
+            "fewer only if the window is sparse."
         ),
     )
 
@@ -170,20 +170,21 @@ async def extract_normalized_keywords(
     if not speech and not lines:
         return []
 
-    chat_blob = "\n".join(f"- {ln}" for ln in lines[-80:])
+    chat_blob = "\n".join(f"- {ln}" for ln in lines[-150:])
     if len(speech) > 2000:
         speech = speech[-2000:]
-    if len(chat_blob) > 6000:
-        chat_blob = chat_blob[-6000:]
+    if len(chat_blob) > 12000:
+        chat_blob = chat_blob[-12000:]
 
     model = _env("OPENAI_MODEL", "gpt-4o-mini")
     system = (
         "You extract TOPIC labels for a live-stream word cloud.\n"
         "Ground every topic in the provided chat (and speech only as weak context). "
-        "If evidence is weak or absent, omit the topic — never invent filler buckets.\n"
+        "Never invent filler buckets with no chat support.\n"
         "Rules:\n"
-        "1. Evidence first: a topic needs clear support in multiple chat lines "
-        "(or one very strong repeated motif). Prefer fewer accurate topics over padding.\n"
+        "1. Evidence first: include topics with clear support in chat "
+        "(recurring motif OR several related lines). Prefer a rich cloud "
+        "when the window is busy; still omit pure noise.\n"
         "2. Canonical merges only when chat clearly matches them — "
         'laughter → "Risas (JAJA)"; common emotes → KEKW/POG/LUL/F. '
         "Do NOT invent stream-tech topics (lag, buffering, audio/video issues, "
@@ -192,13 +193,15 @@ async def extract_normalized_keywords(
         "4. Topic head only: prefer ONE noun/emote/name (max 3 words, ~24 chars). "
         "Convert questions/mini-phrases into the underlying topic; never leave "
         "interrogatives or full utterances.\n"
-        "5. Weight by recurrence across the window; one-off lines stay low or omitted.\n"
-        "Return 0–12 topics. Match the dominant chat language."
+        "5. Weight by recurrence across the window; one-offs can appear at low "
+        "weight if they are a distinct named entity or meme.\n"
+        "Return 8–20 topics when chat has enough variety; fewer only if the "
+        "window is sparse. Match the dominant chat language."
     )
     user = (
         f"STREAMER SPEECH (recent window, weak context only):\n"
         f"{speech or '(silent)'}\n\n"
-        f"RECENT CHAT (normalized, {len(lines[-80:])} messages over ~60s, "
+        f"RECENT CHAT (normalized, {len(lines[-150:])} messages over ~120s, "
         f"oldest→newest — ONLY source of truth for topics/weights):\n"
         f"{chat_blob or '(empty)'}"
     )
@@ -211,8 +214,8 @@ async def extract_normalized_keywords(
                 {"role": "user", "content": user},
             ],
             response_format=WordCloudResponse,
-            max_tokens=400,
-            temperature=0.2,
+            max_tokens=700,
+            temperature=0.3,
         )
     except Exception:
         logger.exception("OpenAI keyword extract failed")
