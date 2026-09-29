@@ -159,6 +159,12 @@ def _channel_id_via_ytdlp_sync(video_id: str) -> str | None:
         "skip_download": True,
         "noplaylist": True,
     }
+    browser = (os.getenv("YTDLP_COOKIES_FROM_BROWSER") or "").strip()
+    cookies = (os.getenv("YTDLP_COOKIES") or "").strip()
+    if browser:
+        opts["cookiesfrombrowser"] = (browser,)
+    elif cookies:
+        opts["cookiefile"] = cookies
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -197,21 +203,22 @@ async def fetch_video_channel_id(video_id: str) -> str | None:
 
 
 async def resolve_video_channel_id(video_id: str) -> tuple[str | None, str]:
-    """Resolve channel id for pytchat: yt-dlp → Data API → (None, scrape).
+    """Resolve channel id for pytchat: Data API → yt-dlp → (None, scrape).
 
-    Returns (channel_id | None, source) where source is ytdlp|api|none.
+    Prefer API first: yt-dlp often hits YouTube bot checks without cookies.
+    Returns (channel_id | None, source) where source is api|ytdlp|none.
     """
     vid = (video_id or "").strip()
     if not vid:
         return None, "none"
 
-    cid = await asyncio.to_thread(_channel_id_via_ytdlp_sync, vid)
-    if cid:
-        return cid, "ytdlp"
-
     cid = await fetch_video_channel_id(vid)
     if cid:
         return cid, "api"
+
+    cid = await asyncio.to_thread(_channel_id_via_ytdlp_sync, vid)
+    if cid:
+        return cid, "ytdlp"
 
     return None, "none"
 

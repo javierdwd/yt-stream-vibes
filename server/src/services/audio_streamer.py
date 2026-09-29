@@ -32,6 +32,22 @@ def youtube_watch_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def _ytdlp_auth_args() -> str:
+    """Optional yt-dlp auth so YouTube bot checks don't kill the audio pipe.
+
+    Set one of:
+      YTDLP_COOKIES_FROM_BROWSER=chrome|safari|firefox|brave|edge
+      YTDLP_COOKIES=/absolute/path/to/cookies.txt
+    """
+    browser = _env("YTDLP_COOKIES_FROM_BROWSER", "")
+    if browser:
+        return f"--cookies-from-browser {shlex.quote(browser)} "
+    cookies = _env("YTDLP_COOKIES", "")
+    if cookies:
+        return f"--cookies {shlex.quote(cookies)} "
+    return ""
+
+
 def audio_prereqs() -> str | None:
     """Return an error string if ffmpeg/yt-dlp are missing, else None."""
     missing: list[str] = []
@@ -122,16 +138,18 @@ async def iter_pcm_chunks(
 ) -> AsyncIterator[bytes]:
     """Yield s16le mono PCM chunks from a YouTube Live stream."""
     url = youtube_watch_url(video_id)
+    auth = _ytdlp_auth_args()
     # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
     # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
     pipeline = (
         f"yt-dlp -f bestaudio/best -o - --no-playlist --quiet --no-warnings "
-        f"{shlex.quote(url)} "
+        f"{auth}{shlex.quote(url)} "
         f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
         f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
     )
 
     proc: asyncio.subprocess.Process | None = None
+    stderr_task: asyncio.Task[None] | None = None
     try:
         proc = await asyncio.create_subprocess_shell(
             pipeline,
@@ -139,6 +157,19 @@ async def iter_pcm_chunks(
             stderr=asyncio.subprocess.PIPE,
         )
         assert proc.stdout is not None
+        assert proc.stderr is not None
+
+        async def _drain_stderr() -> None:
+            assert proc is not None and proc.stderr is not None
+            while True:
+                line = await proc.stderr.readline()
+                if not line:
+                    break
+                msg = line.decode("utf-8", errors="replace").strip()
+                if msg:
+                    logger.warning("yt-dlp/ffmpeg video=%s: %s", video_id, msg)
+
+        stderr_task = asyncio.create_task(_drain_stderr())
 
         while not stop_event.is_set():
             try:
@@ -157,6 +188,12 @@ async def iter_pcm_chunks(
             yield pcm
     finally:
         await _kill_process(proc)
+        if stderr_task is not None:
+            stderr_task.cancel()
+            try:
+                await stderr_task
+            except asyncio.CancelledError:
+                pass
 
 
 async def iter_streamer_events(
