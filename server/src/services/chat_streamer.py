@@ -209,17 +209,20 @@ async def stream_chat_batches(
     Flush when `max_batch_size` is reached or every `flush_interval_s` seconds.
     Runs pytchat on a background thread so the FastAPI event loop stays free.
     """
-    channel_id = await youtube_service.fetch_video_channel_id(video_id)
+    channel_id, channel_src = await youtube_service.resolve_video_channel_id(
+        video_id
+    )
     if channel_id:
         logger.info(
-            "pytchat channel_id from Data API video=%s channel=%s",
+            "pytchat channel_id source=%s video=%s channel=%s",
+            channel_src,
             video_id,
             channel_id,
         )
     else:
         logger.warning(
             "pytchat will scrape channel id from YouTube HTML video=%s "
-            "(set YOUTUBE_API_KEY on server for datacenter reliability)",
+            "(yt-dlp + Data API both failed)",
             video_id,
         )
 

@@ -137,12 +137,40 @@ async def resolve_stream(video_id: str) -> dict[str, Any]:
         return _to_stream(vid, items[0])
 
 
-async def fetch_video_channel_id(video_id: str) -> str | None:
-    """Return snippet.channelId for live chat setup (1 videos.list quota unit).
+def _normalize_channel_id(raw: str | None) -> str | None:
+    cid = (raw or "").strip()
+    # YouTube channel ids are UC… (24 chars typical); reject handles / empty.
+    if cid.startswith("UC") and len(cid) >= 20:
+        return cid
+    return None
 
-    Used when pytchat cannot scrape channel id from YouTube HTML (common on
-    datacenter IPs). Returns None if the key is missing or the call fails.
-    """
+
+def _channel_id_via_ytdlp_sync(video_id: str) -> str | None:
+    """Resolve channel id via yt-dlp InnerTube metadata (no Data API quota)."""
+    try:
+        import yt_dlp
+    except ImportError:
+        return None
+
+    url = f"https://www.youtube.com/watch?v={video_id}"
+    opts: dict[str, Any] = {
+        "quiet": True,
+        "no_warnings": True,
+        "skip_download": True,
+        "noplaylist": True,
+    }
+    try:
+        with yt_dlp.YoutubeDL(opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+    except Exception:
+        return None
+    if not isinstance(info, dict):
+        return None
+    return _normalize_channel_id(info.get("channel_id"))
+
+
+async def fetch_video_channel_id(video_id: str) -> str | None:
+    """Return snippet.channelId via Data API (1 videos.list quota unit)."""
     vid = (video_id or "").strip()
     if not vid:
         return None
@@ -165,8 +193,27 @@ async def fetch_video_channel_id(video_id: str) -> str | None:
     if not items:
         return None
     snippet = items[0].get("snippet") or {}
-    cid = (snippet.get("channelId") or "").strip()
-    return cid or None
+    return _normalize_channel_id(snippet.get("channelId"))
+
+
+async def resolve_video_channel_id(video_id: str) -> tuple[str | None, str]:
+    """Resolve channel id for pytchat: yt-dlp → Data API → (None, scrape).
+
+    Returns (channel_id | None, source) where source is ytdlp|api|none.
+    """
+    vid = (video_id or "").strip()
+    if not vid:
+        return None, "none"
+
+    cid = await asyncio.to_thread(_channel_id_via_ytdlp_sync, vid)
+    if cid:
+        return cid, "ytdlp"
+
+    cid = await fetch_video_channel_id(vid)
+    if cid:
+        return cid, "api"
+
+    return None, "none"
 
 
 def _video_ids_from_search(payload: dict[str, Any]) -> list[str]:
