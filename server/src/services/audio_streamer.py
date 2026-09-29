@@ -32,6 +32,29 @@ def youtube_watch_url(video_id: str) -> str:
     return f"https://www.youtube.com/watch?v={video_id}"
 
 
+def writable_cookie_file(src: str) -> str | None:
+    """Copy a (possibly read-only) Netscape cookie file to a writable path.
+
+    yt-dlp writes cookies back on exit; Docker mounts are often :ro.
+    """
+    if not src or not os.path.isfile(src):
+        return None
+    cache = _env("XDG_CACHE_HOME", "/tmp")
+    dest = os.path.join(cache or "/tmp", "youtube-cookies.writable.txt")
+    try:
+        os.makedirs(os.path.dirname(dest) or ".", exist_ok=True)
+        shutil.copyfile(src, dest)
+        return dest
+    except OSError:
+        dest = "/tmp/youtube-cookies.writable.txt"
+        try:
+            shutil.copyfile(src, dest)
+            return dest
+        except OSError:
+            logger.warning("Could not copy YTDLP_COOKIES to a writable path")
+            return None
+
+
 def _ytdlp_auth_args() -> str:
     """Optional yt-dlp auth so YouTube bot checks don't kill the audio pipe.
 
@@ -44,14 +67,15 @@ def _ytdlp_auth_args() -> str:
         return f"--cookies-from-browser {shlex.quote(browser)} "
     cookies = _env("YTDLP_COOKIES", "")
     if cookies:
-        if not os.path.isfile(cookies):
+        writable = writable_cookie_file(cookies)
+        if writable is None:
             logger.warning(
                 "YTDLP_COOKIES=%s not found — YouTube STT will likely fail "
                 "on datacenter IPs. Export cookies locally and mount the file.",
                 cookies,
             )
             return ""
-        return f"--cookies {shlex.quote(cookies)} "
+        return f"--cookies {shlex.quote(writable)} "
     logger.warning(
         "No YTDLP_COOKIES / YTDLP_COOKIES_FROM_BROWSER set — "
         "YouTube may block yt-dlp audio on AWS"

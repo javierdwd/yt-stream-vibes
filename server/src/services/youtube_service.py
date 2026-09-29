@@ -164,7 +164,11 @@ def _channel_id_via_ytdlp_sync(video_id: str) -> str | None:
     if browser:
         opts["cookiesfrombrowser"] = (browser,)
     elif cookies:
-        opts["cookiefile"] = cookies
+        from src.services.audio_streamer import writable_cookie_file
+
+        writable = writable_cookie_file(cookies)
+        if writable:
+            opts["cookiefile"] = writable
     try:
         with yt_dlp.YoutubeDL(opts) as ydl:
             info = ydl.extract_info(url, download=False)
