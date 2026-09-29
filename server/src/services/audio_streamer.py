@@ -93,15 +93,15 @@ def _ytdlp_js_args() -> str:
 
 
 def _ytdlp_proxy_args() -> str:
-    """Residential / SOCKS exit so YouTube does not see the AWS IP."""
-    proxy = _env("YTDLP_PROXY", "") or _env("HTTPS_PROXY", "") or _env("HTTP_PROXY", "")
+    """Optional explicit proxy. Leave unset when using a Tailscale exit node."""
+    proxy = _env("YTDLP_PROXY", "")
     if not proxy:
         return ""
     return f"--proxy {shlex.quote(proxy)} "
 
 
 def _proxy_log_host() -> str:
-    raw = _env("YTDLP_PROXY", "") or _env("HTTPS_PROXY", "") or _env("HTTP_PROXY", "")
+    raw = _env("YTDLP_PROXY", "")
     if not raw:
         return "none"
     # Never log user:pass
