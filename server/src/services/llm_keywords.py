@@ -38,16 +38,19 @@ class WordCloudItem(BaseModel):
         min_length=1,
         max_length=32,
         description=(
-            "Canonical topic label for the word cloud: prefer a single noun/"
-            "emote/motif (1 word; max 3). Never a question, sentence, or "
-            "copied chat line — reduce the motif to its topic head."
+            "Topic label grounded in the chat window: prefer a single noun/"
+            "emote/motif (1 word; max 3). Never invent categories without "
+            "clear supporting messages."
         ),
     )
     value: int = Field(
         ...,
         ge=1,
         le=100,
-        description="Relative weight of this topic in the recent window (1–100).",
+        description=(
+            "Relative weight from evidence in the window (1–100). "
+            "Higher only when the motif clearly recurs; omit weak topics."
+        ),
     )
 
     @field_validator("text", mode="before")
@@ -59,7 +62,10 @@ class WordCloudItem(BaseModel):
 class WordCloudResponse(BaseModel):
     word_cloud: list[WordCloudItem] = Field(
         default_factory=list,
-        description="Semantically unique topic labels with relative weights.",
+        description=(
+            "Evidence-backed unique topics only. Empty list is fine if chat "
+            "has no clear recurring motifs."
+        ),
     )
 
 
@@ -135,24 +141,27 @@ async def extract_normalized_keywords(
     model = _env("OPENAI_MODEL", "gpt-4o-mini")
     system = (
         "You extract TOPIC labels for a live-stream word cloud.\n"
-        "Each item is a topic (what chat is about), not a quote or question.\n"
+        "Ground every topic in the provided chat (and speech only as weak context). "
+        "If evidence is weak or absent, omit the topic — never invent filler buckets.\n"
         "Rules:\n"
-        '1. Map any laughter form to the single topic "Risas (JAJA)".\n'
-        "2. Map standard emotes to uppercase canons (KEKW, POG, LUL, F).\n"
-        '3. Group technical complaints under "Problemas Técnicos / Lag".\n'
-        "4. Every topic must be semantically unique — merge synonyms/variants.\n"
-        "5. Reduce every cluster to its topic head: prefer ONE noun/emote/name "
-        "(max 3 words, ~24 chars). "
-        "Convert questions and mini-phrases into the underlying topic "
-        "(never leave interrogatives or full utterances).\n"
-        "6. Weight by how often a motif repeats across the whole chat window — "
-        "do not promote one-off messages.\n"
-        "Return 5–12 topics when possible. Match the dominant chat language."
+        "1. Evidence first: a topic needs clear support in multiple chat lines "
+        "(or one very strong repeated motif). Prefer fewer accurate topics over padding.\n"
+        "2. Canonical merges only when chat clearly matches them — "
+        'laughter → "Risas (JAJA)"; common emotes → KEKW/POG/LUL/F; '
+        'explicit lag/buffer/audio/video breakage → "Problemas Técnicos / Lag". '
+        "Do not add a canonical label just because it exists in these rules.\n"
+        "3. Every topic must be semantically unique — merge synonyms/variants.\n"
+        "4. Topic head only: prefer ONE noun/emote/name (max 3 words, ~24 chars). "
+        "Convert questions/mini-phrases into the underlying topic; never leave "
+        "interrogatives or full utterances.\n"
+        "5. Weight by recurrence across the window; one-off lines stay low or omitted.\n"
+        "Return 0–12 topics. Match the dominant chat language."
     )
     user = (
-        f"STREAMER SPEECH (recent window):\n{speech or '(silent)'}\n\n"
+        f"STREAMER SPEECH (recent window, weak context only):\n"
+        f"{speech or '(silent)'}\n\n"
         f"RECENT CHAT (normalized, {len(lines[-80:])} messages over ~60s, "
-        f"oldest→newest — weight by recurrence across the set):\n"
+        f"oldest→newest — ONLY source of truth for topics/weights):\n"
         f"{chat_blob or '(empty)'}"
     )
 
