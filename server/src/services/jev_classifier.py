@@ -65,19 +65,33 @@ _TOPIC_SYNC_LEVELS = (
 
 _BASE_QUESTIONS = {
     "intent": Choice(
-        instructions="What is the primary intent of this live chat message?",
+        instructions=(
+            "What is the primary intent of this live chat message? "
+            "Use stream_topic, streamer_speech, and recent_chat as context when present. "
+            "Short repeated reactions that match the current moment or recent chat "
+            "(chants, 'foto foto', copy-pasta about what is on screen) are hype/reaction, "
+            "NOT spam."
+        ),
         criteria={
             "question": "Asks a question or seeks information from the streamer or chat",
-            "hype/reaction": "Cheering, reacting, emotes, hype — no real question",
+            "hype/reaction": (
+                "Cheering, reacting, emotes, hype, or on-topic chanting/repeats "
+                "about what is happening on stream — no real question"
+            ),
             "technical_issue": "Reports playback, audio, lag, buffering, or stream tech problems",
-            "spam": "Spam, bots, scams, irrelevant promo, or nonsense flood",
+            "spam": (
+                "Only clear spam: bots, scams, phishing, irrelevant promo, or "
+                "nonsense flood with no link to stream_topic / streamer_speech / recent_chat. "
+                "Do NOT mark on-topic repeats or moment reactions as spam."
+            ),
         },
     ),
     "vibe": Choice(
         instructions=(
             "Entertainment/gaming live-chat vibe. Pick exactly one emotional axis "
             "for this message (Twitch/YouTube Live culture). Criteria and reasoning "
-            "must be in English; chat slang in any language is fine as evidence."
+            "must be in English; chat slang in any language is fine as evidence. "
+            "Use stream context when present."
         ),
         criteria={
             "laughter_humor": (
@@ -106,6 +120,11 @@ _BASE_QUESTIONS = {
         criteria=list(_HYPE_LEVELS),
     ),
 }
+
+_CONTEXT_CHAT_LINES = 10
+_CONTEXT_SPEECH_CHARS = 400
+_CONTEXT_TOPIC_CHARS = 200
+_CONTEXT_CHAT_CHARS = 1200
 
 _TOPIC_SYNC_QUESTIONS = {
     "topic_sync": Score(
@@ -230,6 +249,7 @@ async def _classify_one(
     message: dict[str, Any],
     *,
     sem: asyncio.Semaphore,
+    context: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     text = (message.get("message") or "").strip()
     author = (message.get("author") or "").strip()
@@ -246,9 +266,16 @@ async def _classify_one(
     if not text:
         return base
 
+    state: dict[str, str] = {"author": author, "message": text}
+    if context:
+        for key in ("stream_topic", "streamer_speech", "recent_chat"):
+            val = (context.get(key) or "").strip()
+            if val:
+                state[key] = val
+
     async with sem:
         response = await client.system_one(
-            state={"author": author, "message": text},
+            state=state,
             questions=_BASE_QUESTIONS,
         )
 
@@ -266,14 +293,51 @@ async def _classify_one(
     }
 
 
+def build_classify_context(
+    *,
+    recent_chat_lines: list[str] | None = None,
+    stream_topic: str | None = None,
+    streamer_speech: str | None = None,
+) -> dict[str, str]:
+    """Pack session moment context for JEV (spam/intent disambiguation)."""
+    lines = [
+        (ln or "").strip()
+        for ln in (recent_chat_lines or [])
+        if (ln or "").strip()
+    ][-_CONTEXT_CHAT_LINES:]
+    chat_blob = "\n".join(lines)
+    if len(chat_blob) > _CONTEXT_CHAT_CHARS:
+        chat_blob = chat_blob[-_CONTEXT_CHAT_CHARS:]
+
+    topic = (stream_topic or "").strip()
+    if len(topic) > _CONTEXT_TOPIC_CHARS:
+        topic = topic[:_CONTEXT_TOPIC_CHARS]
+
+    speech = (streamer_speech or "").strip()
+    if len(speech) > _CONTEXT_SPEECH_CHARS:
+        speech = speech[-_CONTEXT_SPEECH_CHARS:]
+
+    out: dict[str, str] = {}
+    if topic:
+        out["stream_topic"] = topic
+    if speech:
+        out["streamer_speech"] = speech
+    if chat_blob:
+        out["recent_chat"] = chat_blob
+    return out
+
+
 async def classify_batch(
     messages: list[dict[str, Any]],
     *,
     client: AsyncTypeSafeClient | None = None,
+    context: dict[str, str] | None = None,
 ) -> dict[str, Any]:
     """Classify a micro-batch with JEV (TypeSafe System One).
 
     Spam is JEV `intent=spam` only (no heuristic session memory).
+    Pass `context` (stream_topic / streamer_speech / recent_chat) to cut
+    false-positive spam on on-topic chants and moment reactions.
     Returns per-message labels plus batch aggregates for the analytics panel.
     """
     if not messages:
@@ -296,9 +360,9 @@ async def classify_batch(
     try:
         if owns_client:
             async with client:
-                results = await _run_all(client, messages, sem)
+                results = await _run_all(client, messages, sem, context=context)
         else:
-            results = await _run_all(client, messages, sem)
+            results = await _run_all(client, messages, sem, context=context)
     except Exception:
         logger.exception("JEV classify_batch failed (%d messages)", len(messages))
         raise
@@ -334,8 +398,12 @@ async def _run_all(
     client: AsyncTypeSafeClient,
     messages: list[dict[str, Any]],
     sem: asyncio.Semaphore,
+    *,
+    context: dict[str, str] | None = None,
 ) -> list[dict[str, Any]]:
-    tasks = [_classify_one(client, m, sem=sem) for m in messages]
+    tasks = [
+        _classify_one(client, m, sem=sem, context=context) for m in messages
+    ]
     settled = await asyncio.gather(*tasks, return_exceptions=True)
     out: list[dict[str, Any]] = []
     for msg, result in zip(messages, settled, strict=True):

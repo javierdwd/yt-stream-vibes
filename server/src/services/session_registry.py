@@ -22,6 +22,7 @@ from src.services.alignment_engine import (
 from src.services.audio_streamer import iter_streamer_events
 from src.services.jev_classifier import (
     VIBE_AXES,
+    build_classify_context,
     classify_batch,
     classify_topic_sync,
     empty_vibe_counts,
@@ -490,7 +491,25 @@ class SessionRegistry:
                     }
                     t0 = time.perf_counter()
                     try:
-                        metrics = await classify_batch(batch, client=client)
+                        # Prior chat + stream moment so JEV doesn't false-spam
+                        # on-topic chants ("foto foto") / moment reactions.
+                        ctx_lines = [
+                            s.line for s in list(session.recent_chat)[-10:]
+                        ]
+                        # Also hint with other lines already in this micro-batch.
+                        for m in batch:
+                            author = (m.get("author") or "").strip() or "anon"
+                            text = (m.get("message") or "").strip()
+                            if text:
+                                ctx_lines.append(f"{author}: {text}")
+                        context = build_classify_context(
+                            recent_chat_lines=ctx_lines,
+                            stream_topic=session.theme_oneliner,
+                            streamer_speech=session.streamer_transcript,
+                        )
+                        metrics = await classify_batch(
+                            batch, client=client, context=context or None
+                        )
                     except Exception:
                         logger.exception(
                             "JEV classify failed session=%s", session.session_id
