@@ -12,8 +12,8 @@ AlignmentLabel = Literal[
 
 # How much recent speech/chat to feed JEV for topic sync.
 SPEECH_WINDOW_S = 20.0
-CHAT_WINDOW_S = 20.0
-MAX_CHAT_LINES = 25
+CHAT_WINDOW_S = 45.0
+MAX_CHAT_LINES = 40
 
 
 def label_for_score(score: int) -> AlignmentLabel:

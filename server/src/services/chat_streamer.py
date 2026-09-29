@@ -3,18 +3,37 @@
 from __future__ import annotations
 
 import asyncio
+import errno
 import logging
 import threading
 import time
 from collections.abc import AsyncIterator
 from typing import Any
 
+import httpx
 import pytchat
 
 logger = logging.getLogger(__name__)
 
 _MIN_BACKOFF_S = 2.0
 _MAX_BACKOFF_S = 30.0
+
+
+def _is_transient_net_error(exc: BaseException) -> bool:
+    """macOS EAGAIN / httpx brief read failures while polling live chat."""
+    if isinstance(exc, (httpx.ReadError, httpx.ConnectError, httpx.RemoteProtocolError)):
+        return True
+    if isinstance(exc, OSError) and exc.errno in {
+        errno.EAGAIN,
+        errno.EWOULDBLOCK,
+        errno.ECONNRESET,
+        errno.ETIMEDOUT,
+    }:
+        return True
+    cause = getattr(exc, "__cause__", None)
+    if cause is not None and cause is not exc:
+        return _is_transient_net_error(cause)
+    return False
 
 
 def _serialize_message(item: Any) -> dict[str, Any]:
@@ -99,7 +118,7 @@ def _poll_sync(
                     elif now >= deadline:
                         deadline = now + flush_interval_s
 
-                    time.sleep(0.2)
+                    time.sleep(0.1)
 
                 if not stop.is_set():
                     reason = _pytchat_death_reason(chat) if chat else "no chat"
@@ -111,12 +130,21 @@ def _poll_sync(
                         got_messages,
                         backoff_s,
                     )
-            except Exception:
-                logger.exception(
-                    "chat_streamer worker failed for %s; reconnecting in %.1fs",
-                    video_id,
-                    backoff_s,
-                )
+            except Exception as exc:
+                if _is_transient_net_error(exc):
+                    logger.warning(
+                        "pytchat transient net error video=%s err=%s; "
+                        "reconnecting in %.1fs",
+                        video_id,
+                        exc,
+                        backoff_s,
+                    )
+                else:
+                    logger.exception(
+                        "chat_streamer worker failed for %s; reconnecting in %.1fs",
+                        video_id,
+                        backoff_s,
+                    )
             finally:
                 if chat is not None:
                     try:

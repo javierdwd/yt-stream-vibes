@@ -64,13 +64,13 @@ export type StatsEvent = {
     non_spam_count?: number;
     span_seconds?: number;
   };
-  streamer_transcript?: string | null;
   streamer_vibe?: string | null;
+  streamer_topic?: string | null;
+  chat_topic?: string | null;
   theme_oneliner?: string | null;
   alignment_score?: number | null;
   alignment_label?: string | null;
   audio_error?: string | null;
-  chat_warning?: string | null;
   error?: string;
   classify_error?: string;
   heartbeat?: boolean;

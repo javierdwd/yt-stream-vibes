@@ -28,12 +28,12 @@ from src.services.jev_classifier import (
     empty_vibe_counts,
     radar_from_vibe_counts,
 )
-from src.services.theme_summarizer import summarize_theme
+from src.services.theme_summarizer import summarize_topics
 
 logger = logging.getLogger(__name__)
 
-_CLASSIFY_QUEUE_SIZE = 8
-_SUBSCRIBER_QUEUE_SIZE = 32
+_CLASSIFY_QUEUE_SIZE = 32
+_SUBSCRIBER_QUEUE_SIZE = 64
 Channel = Literal["chat", "stats"]
 
 
@@ -89,6 +89,8 @@ class AnalysisSession:
     streamer_transcript: str | None = None
     streamer_vibe: str | None = None
     streamer_vibe_counts: dict[str, int] = field(default_factory=empty_vibe_counts)
+    streamer_topic: str | None = None
+    chat_topic: str | None = None
     theme_oneliner: str | None = None
     alignment_score: int | None = None
     alignment_label: str | None = None
@@ -222,31 +224,40 @@ class SessionRegistry:
         self._prune_sync_buffers(session, now)
         speech = join_recent_speech(list(session.speech_chunks), now=now)
         chat_lines = recent_chat_lines(list(session.recent_chat), now=now)
-        # Do not overwrite streamer_transcript here — UI shows the latest chunk only.
-        if not speech or not chat_lines:
+        if not speech and not chat_lines:
             return
-        try:
-            result = await classify_topic_sync(
-                streamer_speech=speech,
-                chat_lines=chat_lines,
-                client=client,
-            )
-        except Exception:
-            logger.exception(
-                "Topic sync classify failed session=%s", session.session_id
-            )
-            result = {"skipped": True}
-        if not result.get("skipped"):
-            session.alignment_score = result.get("alignment_score")
-            session.alignment_label = result.get("alignment_label")
+
+        if speech and chat_lines:
+            try:
+                result = await classify_topic_sync(
+                    streamer_speech=speech,
+                    chat_lines=chat_lines,
+                    client=client,
+                )
+            except Exception:
+                logger.exception(
+                    "Topic sync classify failed session=%s", session.session_id
+                )
+                result = {"skipped": True}
+            if not result.get("skipped"):
+                session.alignment_score = result.get("alignment_score")
+                session.alignment_label = result.get("alignment_label")
 
         try:
-            theme = await summarize_theme(
+            topics = await summarize_topics(
                 streamer_speech=speech,
                 chat_lines=chat_lines,
             )
-            if theme:
-                session.theme_oneliner = theme
+            if topics.get("streamer_topic"):
+                session.streamer_topic = topics["streamer_topic"]
+            if topics.get("chat_topic"):
+                session.chat_topic = topics["chat_topic"]
+            parts = [
+                p
+                for p in (session.streamer_topic, session.chat_topic)
+                if p
+            ]
+            session.theme_oneliner = " · ".join(parts) if parts else session.theme_oneliner
         except Exception:
             logger.exception(
                 "Theme summarize failed session=%s", session.session_id
@@ -321,6 +332,8 @@ class SessionRegistry:
             },
             "streamer_transcript": session.streamer_transcript,
             "streamer_vibe": session.streamer_vibe,
+            "streamer_topic": session.streamer_topic,
+            "chat_topic": session.chat_topic,
             "theme_oneliner": session.theme_oneliner,
             "alignment_score": session.alignment_score,
             "alignment_label": session.alignment_label,
@@ -345,7 +358,9 @@ class SessionRegistry:
         async def pump_chat() -> None:
             try:
                 async for batch in adapter.stream_chat_batches(
-                    session.video_id, flush_interval_s=3.0
+                    session.video_id,
+                    flush_interval_s=1.5,
+                    max_batch_size=30,
                 ):
                     if session.stop_event.is_set():
                         break
@@ -354,11 +369,25 @@ class SessionRegistry:
                     if pending.full():
                         try:
                             dropped = pending.get_nowait()
-                            logger.warning(
-                                "Dropped stale chat batch (%d msgs) session=%s",
-                                len(dropped or []),
-                                session.session_id,
-                            )
+                            if dropped:
+                                logger.warning(
+                                    "Classify backlog — showing %d msgs unlabeled "
+                                    "session=%s",
+                                    len(dropped),
+                                    session.session_id,
+                                )
+                                # Still surface in UI; JEV skipped for this batch.
+                                self._fanout(
+                                    session,
+                                    "chat",
+                                    {
+                                        "session_id": session.session_id,
+                                        "video_id": session.video_id,
+                                        "platform": session.platform,
+                                        "messages": enrich_messages(dropped, []),
+                                        "classify_error": "backlog_skipped",
+                                    },
+                                )
                         except asyncio.QueueEmpty:
                             pass
                     await pending.put(batch)
@@ -485,6 +514,18 @@ class SessionRegistry:
                     if batch is None:
                         break
 
+                    # Show messages immediately; labels arrive after JEV.
+                    self._fanout(
+                        session,
+                        "chat",
+                        {
+                            "session_id": session.session_id,
+                            "video_id": session.video_id,
+                            "platform": session.platform,
+                            "messages": enrich_messages(batch, []),
+                        },
+                    )
+
                     metrics: dict[str, Any] = {
                         "classifications": [],
                         "hype_score": 0,
@@ -504,7 +545,16 @@ class SessionRegistry:
                                 ctx_lines.append(f"{author}: {text}")
                         context = build_classify_context(
                             recent_chat_lines=ctx_lines,
-                            stream_topic=session.theme_oneliner,
+                            stream_topic=session.theme_oneliner
+                            or " · ".join(
+                                p
+                                for p in (
+                                    session.streamer_topic,
+                                    session.chat_topic,
+                                )
+                                if p
+                            )
+                            or None,
                             streamer_speech=session.streamer_transcript,
                         )
                         metrics = await classify_batch(

@@ -184,35 +184,28 @@ export function VibeRadarPanel({ sessionId }: Props) {
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
-      <div className="shrink-0 border-b border-border">
-        <div className="flex items-center justify-between gap-2 px-3 py-2">
-          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-            Stream vibe
-          </span>
-          <div className="flex items-center gap-3">
-            {typeof stats?.hype_score === "number" ? (
-              <span className="font-mono text-[10px] tabular-nums text-accent">
-                hype {stats.hype_score}
-              </span>
-            ) : null}
-            <span
-              className={`font-mono text-[10px] uppercase tracking-wider ${
-                status === "live"
-                  ? "text-accent"
-                  : status === "error"
-                    ? "text-live"
-                    : "text-muted"
-              }`}
-            >
-              {status === "live" ? "SSE · stats" : status}
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
+        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+          Stream vibe
+        </span>
+        <div className="flex items-center gap-3">
+          {typeof stats?.hype_score === "number" ? (
+            <span className="font-mono text-[10px] tabular-nums text-accent">
+              hype {stats.hype_score}
             </span>
-          </div>
+          ) : null}
+          <span
+            className={`font-mono text-[10px] uppercase tracking-wider ${
+              status === "live"
+                ? "text-accent"
+                : status === "error"
+                  ? "text-live"
+                  : "text-muted"
+            }`}
+          >
+            {status === "live" ? "SSE · stats" : status}
+          </span>
         </div>
-        {stats?.chat_warning === "chat_reconnect" ? (
-          <p className="border-t border-border px-3 py-1 font-mono text-[10px] text-live">
-            Chat dropped — reconnecting…
-          </p>
-        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-bg p-3">
@@ -260,15 +253,12 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 )}
               </div>
               <p className="font-mono text-[10px] leading-snug text-fg">
-                <span className="text-muted">topic </span>
-                {stats?.theme_oneliner ?? "—"}
+                <span className="text-muted">Topic streamer </span>
+                {stats?.streamer_topic ?? "—"}
               </p>
-              <p
-                className="line-clamp-2 font-mono text-[10px] leading-snug text-muted"
-                title={stats?.streamer_transcript ?? undefined}
-              >
-                <span className="text-muted/80">speech </span>
-                {stats?.streamer_transcript ?? "—"}
+              <p className="font-mono text-[10px] leading-snug text-fg">
+                <span className="text-muted">Topic chat </span>
+                {stats?.chat_topic ?? "—"}
               </p>
             </div>
             <div className="grid min-h-0 flex-1 grid-rows-2 gap-2">
