@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { JetBrains_Mono, Syne } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
+import { SiteFooter } from "@/components/site-footer";
 import "./globals.css";
 
 const syne = Syne({
@@ -28,7 +29,12 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
       className={`${syne.variable} ${jetbrains.variable} h-dvh overflow-hidden antialiased`}
     >
       <body className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
-        <QueryProvider>{children}</QueryProvider>
+        <QueryProvider>
+          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+            {children}
+          </div>
+          <SiteFooter />
+        </QueryProvider>
       </body>
     </html>
   );

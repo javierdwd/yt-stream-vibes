@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { IdleSessionGuard } from "@/components/idle-session-guard";
 import { IngestedChatFeed } from "@/components/ingested-chat-feed";
 import { VibeRadarPanel } from "@/components/vibe-radar-panel";
+import { YoutubeAttribution } from "@/components/youtube-attribution";
 import { clearSession, connectStream, type Platform } from "@/lib/api";
 
 type Props = {
@@ -120,7 +121,7 @@ export function StreamRoom({ platform, streamId }: Props) {
         onReconnect={() => void startSession()}
       />
       <header className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-border pb-2">
-        <div className="flex min-w-0 items-baseline gap-3">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
           <Link
             href="/"
             className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted transition-colors duration-200 hover:text-accent"
@@ -130,6 +131,7 @@ export function StreamRoom({ platform, streamId }: Props) {
           <h1 className="text-lg font-semibold tracking-tight text-fg md:text-xl">
             Stream
           </h1>
+          {platform === "youtube" ? <YoutubeAttribution height={20} /> : null}
         </div>
         <div className="flex flex-wrap items-center gap-2 md:gap-3">
           {sessionId ? (

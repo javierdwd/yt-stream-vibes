@@ -2,6 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
+import { YoutubeAttribution } from "@/components/youtube-attribution";
 import { useLives } from "@/hooks/use-api";
 import type { LiveStream } from "@/lib/api";
 
@@ -35,7 +36,10 @@ function StreamTile({ stream }: { stream: LiveStream }) {
           <div className="absolute inset-0 bg-border/40" />
         )}
         <span className="absolute left-2 top-2 inline-flex items-center gap-1.5 bg-bg/80 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-widest text-fg">
-          <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-live" aria-hidden />
+          <span
+            className="h-1.5 w-1.5 animate-pulse rounded-full bg-live"
+            aria-hidden
+          />
           Live
         </span>
       </div>
@@ -90,18 +94,21 @@ export function LiveStreamsPanel() {
 
   return (
     <section className="flex min-h-0 flex-1 flex-col gap-4 overflow-hidden">
-      <div className="flex shrink-0 items-baseline justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight text-fg md:text-xl">
+      <div className="flex shrink-0 items-center gap-3">
+        <h2 className="text-lg font-semibold leading-none tracking-tight text-fg md:text-xl">
           Top Lives
         </h2>
-        <button
-          type="button"
-          onClick={() => void refetch()}
-          disabled={isFetching}
-          className="font-mono text-[11px] uppercase tracking-wider text-muted transition-colors duration-200 hover:text-accent disabled:opacity-40"
-        >
-          {isFetching ? "Refreshing…" : "Refresh"}
-        </button>
+        <div className="ml-auto flex items-center gap-4">
+          <YoutubeAttribution height={24} />
+          <button
+            type="button"
+            onClick={() => void refetch()}
+            disabled={isFetching}
+            className="font-mono text-[11px] uppercase leading-none tracking-wider text-muted transition-colors duration-200 hover:text-accent disabled:opacity-40"
+          >
+            {isFetching ? "Refreshing…" : "Refresh"}
+          </button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto pr-1">
