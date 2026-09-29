@@ -35,7 +35,7 @@ export function UrlPastePanel() {
           Paste a live URL
         </h2>
         <p className="mt-2 font-mono text-xs text-muted">
-          YouTube or Twitch — no search, no login.
+          Drop a live stream link to open the Signal Room.
         </p>
       </div>
 
@@ -49,7 +49,7 @@ export function UrlPastePanel() {
           inputMode="url"
           autoComplete="off"
           spellCheck={false}
-          placeholder="https://www.youtube.com/watch?v=… or https://www.twitch.tv/…"
+          placeholder="https://www.youtube.com/watch?v=…"
           value={url}
           onChange={(e) => setUrl(e.target.value)}
           className="h-11 w-full border border-border bg-surface px-3 font-mono text-sm text-fg outline-none transition-colors duration-200 placeholder:text-muted/70 focus:border-accent"
