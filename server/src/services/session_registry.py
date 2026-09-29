@@ -366,6 +366,11 @@ class SessionRegistry:
             except Exception:
                 logger.exception("Chat pump failed session=%s", session.session_id)
             finally:
+                logger.info(
+                    "Chat pump exiting session=%s video=%s",
+                    session.session_id,
+                    session.video_id,
+                )
                 try:
                     pending.put_nowait(None)
                 except asyncio.QueueFull:
@@ -543,6 +548,12 @@ class SessionRegistry:
                 },
             )
         finally:
+            logger.warning(
+                "Session worker stopping id=%s video=%s platform=%s",
+                session.session_id,
+                session.video_id,
+                session.platform,
+            )
             session.stop_event.set()
             pump.cancel()
             audio_task.cancel()
@@ -578,8 +589,16 @@ async def iter_session_events(
         return
     try:
         while True:
-            item = await q.get()
+            try:
+                item = await asyncio.wait_for(q.get(), timeout=15.0)
+            except asyncio.TimeoutError:
+                # Keep proxies / EventSource alive when chat is quiet.
+                yield {"session_id": session_id, "heartbeat": True}
+                continue
             if item is None:
+                logger.info(
+                    "SSE %s closed (session ended) session=%s", channel, session_id
+                )
                 break
             yield item
     finally:

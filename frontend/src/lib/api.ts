@@ -37,16 +37,17 @@ export type ChatMessage = {
 
 export type ChatBatchEvent = {
   session_id?: string;
-  video_id: string;
+  video_id?: string;
   platform?: string;
-  messages: ChatMessage[];
+  messages?: ChatMessage[];
   error?: string;
   classify_error?: string;
+  heartbeat?: boolean;
 };
 
 export type StatsEvent = {
   session_id?: string;
-  video_id: string;
+  video_id?: string;
   platform?: string;
   chart_type?: "radar";
   radar_data?: {
@@ -69,8 +70,10 @@ export type StatsEvent = {
   alignment_score?: number | null;
   alignment_label?: string | null;
   audio_error?: string | null;
+  chat_warning?: string | null;
   error?: string;
   classify_error?: string;
+  heartbeat?: boolean;
 };
 
 async function apiJson<T>(path: string, init?: RequestInit): Promise<T> {

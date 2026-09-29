@@ -13,6 +13,9 @@ import pytchat
 
 logger = logging.getLogger(__name__)
 
+_MIN_BACKOFF_S = 2.0
+_MAX_BACKOFF_S = 30.0
+
 
 def _serialize_message(item: Any) -> dict[str, Any]:
     author = getattr(item, "author", None)
@@ -25,6 +28,14 @@ def _serialize_message(item: Any) -> dict[str, Any]:
     }
 
 
+def _pytchat_death_reason(chat: Any) -> str:
+    try:
+        chat.raise_for_status()
+    except Exception as exc:
+        return f"{type(exc).__name__}: {exc}"
+    return "unknown (is_alive=False)"
+
+
 def _poll_sync(
     video_id: str,
     queue: asyncio.Queue[list[dict[str, Any]] | None],
@@ -34,45 +45,93 @@ def _poll_sync(
     max_batch_size: int,
     flush_interval_s: float,
 ) -> None:
-    """Blocking pytchat worker (LiveChatAsync is broken on current httpx)."""
+    """Blocking pytchat worker (LiveChatAsync is broken on current httpx).
+
+    pytchat often dies on empty polls (`NoContents`). Recreate with backoff
+    until `stop` — do not end the async consumer on a transient empty fetch.
+    """
     chat = None
     batch: list[dict[str, Any]] = []
     deadline = time.monotonic() + flush_interval_s
+    backoff_s = _MIN_BACKOFF_S
 
     def put(item: list[dict[str, Any]] | None) -> None:
         loop.call_soon_threadsafe(queue.put_nowait, item)
 
     try:
-        chat = pytchat.create(video_id=video_id, interruptable=False)
-        while chat.is_alive() and not stop.is_set():
-            data = chat.get()
-            items = list(getattr(data, "items", None) or [])
-            for raw in items:
-                msg = _serialize_message(raw)
-                if not msg["message"] and not msg["author"]:
-                    continue
-                batch.append(msg)
+        while not stop.is_set():
+            chat = None
+            got_messages = False
+            try:
+                chat = pytchat.create(video_id=video_id, interruptable=False)
+                if not chat.is_alive():
+                    reason = _pytchat_death_reason(chat)
+                    logger.warning(
+                        "pytchat not alive at start video=%s reason=%s",
+                        video_id,
+                        reason,
+                    )
+                else:
+                    logger.info(
+                        "pytchat connected video=%s replay=%s",
+                        video_id,
+                        bool(chat.is_replay()),
+                    )
 
-            now = time.monotonic()
-            if batch and (len(batch) >= max_batch_size or now >= deadline):
-                put(batch)
-                batch = []
-                deadline = now + flush_interval_s
-            elif now >= deadline:
-                # No empty heartbeats — avoids SSE noise / UI metric resets.
-                deadline = now + flush_interval_s
+                while chat.is_alive() and not stop.is_set():
+                    data = chat.get()
+                    items = list(getattr(data, "items", None) or [])
+                    for raw in items:
+                        msg = _serialize_message(raw)
+                        if not msg["message"] and not msg["author"]:
+                            continue
+                        batch.append(msg)
+                        got_messages = True
 
-            time.sleep(0.2)
-    except Exception:
-        logger.exception("chat_streamer worker failed for %s", video_id)
+                    now = time.monotonic()
+                    if batch and (
+                        len(batch) >= max_batch_size or now >= deadline
+                    ):
+                        put(batch)
+                        batch = []
+                        deadline = now + flush_interval_s
+                        backoff_s = _MIN_BACKOFF_S
+                    elif now >= deadline:
+                        deadline = now + flush_interval_s
+
+                    time.sleep(0.2)
+
+                if not stop.is_set():
+                    reason = _pytchat_death_reason(chat) if chat else "no chat"
+                    logger.warning(
+                        "pytchat died video=%s reason=%s got_messages=%s; "
+                        "reconnecting in %.1fs",
+                        video_id,
+                        reason,
+                        got_messages,
+                        backoff_s,
+                    )
+            except Exception:
+                logger.exception(
+                    "chat_streamer worker failed for %s; reconnecting in %.1fs",
+                    video_id,
+                    backoff_s,
+                )
+            finally:
+                if chat is not None:
+                    try:
+                        chat.terminate()
+                    except Exception:
+                        logger.debug("chat terminate failed", exc_info=True)
+                    chat = None
+
+            if stop.is_set():
+                break
+            time.sleep(backoff_s)
+            backoff_s = min(backoff_s * 1.5, _MAX_BACKOFF_S)
     finally:
         if batch:
             put(batch)
-        if chat is not None:
-            try:
-                chat.terminate()
-            except Exception:
-                logger.debug("chat terminate failed", exc_info=True)
         put(None)
 
 

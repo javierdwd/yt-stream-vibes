@@ -48,6 +48,7 @@ export function IngestedChatFeed({ sessionId }: Props) {
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as ChatBatchEvent;
+        if (data.heartbeat) return;
         if (data.error) {
           setError(data.error);
           setStatus("error");
@@ -56,6 +57,8 @@ export function IngestedChatFeed({ sessionId }: Props) {
         const batch = data.messages ?? [];
         if (batch.length === 0) return;
         setMessages((prev) => mergeMessages(prev, batch));
+        setStatus("live");
+        setError(null);
       } catch {
         setError("Bad SSE payload");
         setStatus("error");
@@ -63,9 +66,12 @@ export function IngestedChatFeed({ sessionId }: Props) {
     };
 
     es.onerror = () => {
-      setStatus("error");
-      setError("SSE disconnected");
-      es.close();
+      if (es.readyState === EventSource.CLOSED) {
+        setStatus("error");
+        setError("SSE disconnected");
+        return;
+      }
+      setStatus("connecting");
     };
 
     return () => es.close();

@@ -51,12 +51,15 @@ export function VibeRadarPanel({ sessionId }: Props) {
     es.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as StatsEvent;
+        if (data.heartbeat) return;
         if (data.error) {
           setError(data.error);
           setStatus("error");
           return;
         }
         setStats(data);
+        setStatus("live");
+        setError(null);
       } catch {
         setError("Bad SSE payload");
         setStatus("error");
@@ -64,9 +67,13 @@ export function VibeRadarPanel({ sessionId }: Props) {
     };
 
     es.onerror = () => {
-      setStatus("error");
-      setError("SSE disconnected");
-      es.close();
+      // Let EventSource retry transient drops; only surface a hard close.
+      if (es.readyState === EventSource.CLOSED) {
+        setStatus("error");
+        setError("SSE disconnected");
+        return;
+      }
+      setStatus("connecting");
     };
 
     return () => es.close();
@@ -177,28 +184,35 @@ export function VibeRadarPanel({ sessionId }: Props) {
 
   return (
     <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
-        <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
-          Stream vibe
-        </span>
-        <div className="flex items-center gap-3">
-          {typeof stats?.hype_score === "number" ? (
-            <span className="font-mono text-[10px] tabular-nums text-accent">
-              hype {stats.hype_score}
-            </span>
-          ) : null}
-          <span
-            className={`font-mono text-[10px] uppercase tracking-wider ${
-              status === "live"
-                ? "text-accent"
-                : status === "error"
-                  ? "text-live"
-                  : "text-muted"
-            }`}
-          >
-            {status === "live" ? "SSE · stats" : status}
+      <div className="shrink-0 border-b border-border">
+        <div className="flex items-center justify-between gap-2 px-3 py-2">
+          <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
+            Stream vibe
           </span>
+          <div className="flex items-center gap-3">
+            {typeof stats?.hype_score === "number" ? (
+              <span className="font-mono text-[10px] tabular-nums text-accent">
+                hype {stats.hype_score}
+              </span>
+            ) : null}
+            <span
+              className={`font-mono text-[10px] uppercase tracking-wider ${
+                status === "live"
+                  ? "text-accent"
+                  : status === "error"
+                    ? "text-live"
+                    : "text-muted"
+              }`}
+            >
+              {status === "live" ? "SSE · stats" : status}
+            </span>
+          </div>
         </div>
+        {stats?.chat_warning === "chat_reconnect" ? (
+          <p className="border-t border-border px-3 py-1 font-mono text-[10px] text-live">
+            Chat dropped — reconnecting…
+          </p>
+        ) : null}
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-bg p-3">
