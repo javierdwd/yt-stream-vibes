@@ -92,6 +92,14 @@ def _ytdlp_js_args() -> str:
     return ""
 
 
+def _ytdlp_proxy_args() -> str:
+    """Residential / SOCKS exit so YouTube does not see the AWS IP."""
+    proxy = _env("YTDLP_PROXY", "") or _env("HTTPS_PROXY", "") or _env("HTTP_PROXY", "")
+    if not proxy:
+        return ""
+    return f"--proxy {shlex.quote(proxy)} "
+
+
 def audio_prereqs() -> str | None:
     """Return an error string if ffmpeg/yt-dlp are missing, else None."""
     missing: list[str] = []
@@ -188,6 +196,7 @@ async def iter_pcm_chunks(
     url = youtube_watch_url(video_id)
     auth = _ytdlp_auth_args()
     js = _ytdlp_js_args()
+    proxy = _ytdlp_proxy_args()
 
     for client in _PLAYER_CLIENTS:
         if stop_event.is_set():
@@ -197,7 +206,7 @@ async def iter_pcm_chunks(
         # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
         pipeline = (
             f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
-            f"{js}--extractor-args {shlex.quote(extractor)} "
+            f"{js}{proxy}--extractor-args {shlex.quote(extractor)} "
             f"{auth}{shlex.quote(url)} "
             f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
             f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
