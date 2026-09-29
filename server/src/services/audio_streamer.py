@@ -83,6 +83,15 @@ def _ytdlp_auth_args() -> str:
     return ""
 
 
+def _ytdlp_js_args() -> str:
+    """Local yt-dlp uses Deno for YouTube JS challenges; Docker needs it too."""
+    if shutil.which("deno"):
+        return "--js-runtimes deno "
+    if shutil.which("node"):
+        return "--js-runtimes node "
+    return ""
+
+
 def audio_prereqs() -> str | None:
     """Return an error string if ffmpeg/yt-dlp are missing, else None."""
     missing: list[str] = []
@@ -167,9 +176,8 @@ async def _kill_process(proc: asyncio.subprocess.Process | None) -> None:
         pass
 
 
-# Web client hits "page needs to be reloaded" on datacenter IPs.
-# Innertube clients skip most of that challenge.
-_PLAYER_CLIENTS = ("android", "ios", "tv", "web")
+# web first once Deno can solve JS challenges (same path as local).
+_PLAYER_CLIENTS = ("web", "tv", "android", "ios")
 
 
 async def iter_pcm_chunks(
@@ -179,6 +187,7 @@ async def iter_pcm_chunks(
     """Yield s16le mono PCM chunks from a YouTube Live stream."""
     url = youtube_watch_url(video_id)
     auth = _ytdlp_auth_args()
+    js = _ytdlp_js_args()
 
     for client in _PLAYER_CLIENTS:
         if stop_event.is_set():
@@ -188,7 +197,7 @@ async def iter_pcm_chunks(
         # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
         pipeline = (
             f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
-            f"--extractor-args {shlex.quote(extractor)} "
+            f"{js}--extractor-args {shlex.quote(extractor)} "
             f"{auth}{shlex.quote(url)} "
             f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
             f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
