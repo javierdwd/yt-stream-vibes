@@ -18,6 +18,10 @@ out/
 .env.*.local
 !.env.example
 server/.env
+server/secrets/**
+!server/secrets/.gitkeep
+**/cookies*.txt
+**/*cookies*.txt
 
 # OS / IDE
 .DS_Store

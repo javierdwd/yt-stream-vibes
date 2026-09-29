@@ -11,8 +11,12 @@ services:
       WHISPER_MODEL: ${WHISPER_MODEL:-tiny}
       WHISPER_DEVICE: ${WHISPER_DEVICE:-cpu}
       WHISPER_COMPUTE_TYPE: ${WHISPER_COMPUTE_TYPE:-int8}
+      # YouTube bot-check bypass for STT (file must exist on host — see .env.example)
+      YTDLP_COOKIES: ${YTDLP_COOKIES:-/data/cookies/youtube.txt}
     volumes:
       - whisper-cache:/data/cache
+      # Export locally, copy to server/secrets/youtube-cookies.txt (gitignored)
+      - ./secrets/youtube-cookies.txt:/data/cookies/youtube.txt:ro
     restart: unless-stopped
 
 volumes:

@@ -36,15 +36,26 @@ def _ytdlp_auth_args() -> str:
     """Optional yt-dlp auth so YouTube bot checks don't kill the audio pipe.
 
     Set one of:
-      YTDLP_COOKIES_FROM_BROWSER=chrome|safari|firefox|brave|edge
-      YTDLP_COOKIES=/absolute/path/to/cookies.txt
+      YTDLP_COOKIES_FROM_BROWSER=chrome|safari|firefox|brave|edge  (local only)
+      YTDLP_COOKIES=/absolute/path/to/cookies.txt  (AWS/Docker)
     """
     browser = _env("YTDLP_COOKIES_FROM_BROWSER", "")
     if browser:
         return f"--cookies-from-browser {shlex.quote(browser)} "
     cookies = _env("YTDLP_COOKIES", "")
     if cookies:
+        if not os.path.isfile(cookies):
+            logger.warning(
+                "YTDLP_COOKIES=%s not found — YouTube STT will likely fail "
+                "on datacenter IPs. Export cookies locally and mount the file.",
+                cookies,
+            )
+            return ""
         return f"--cookies {shlex.quote(cookies)} "
+    logger.warning(
+        "No YTDLP_COOKIES / YTDLP_COOKIES_FROM_BROWSER set — "
+        "YouTube may block yt-dlp audio on AWS"
+    )
     return ""
 
 
