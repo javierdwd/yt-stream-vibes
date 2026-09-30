@@ -565,18 +565,7 @@ class SessionRegistry:
                     if batch is None:
                         break
 
-                    # Show messages immediately; labels arrive after JEV.
-                    self._fanout(
-                        session,
-                        "chat",
-                        {
-                            "session_id": session.session_id,
-                            "video_id": session.video_id,
-                            "platform": session.platform,
-                            "messages": enrich_messages(batch, []),
-                        },
-                    )
-
+                    # Emit once after JEV — avoids full-text → spam-preview flash in UI.
                     metrics: dict[str, Any] = {
                         "classifications": [],
                         "hype_score": 0,

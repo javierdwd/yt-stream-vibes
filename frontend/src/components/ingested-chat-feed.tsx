@@ -20,8 +20,8 @@ function isSpamMessage(m: ChatMessage): boolean {
 
 /** One-line preview for spam floods (emoji walls, etc.). */
 function displayMessage(m: ChatMessage): string {
-  const raw = (m.message || "").replace(/\s+/g, " ").trim();
   if (!isSpamMessage(m)) return m.message || "";
+  const raw = (m.message || "").replace(/\s+/g, " ").trim();
   if (raw.length <= SPAM_PREVIEW_CHARS) return raw;
   return `${raw.slice(0, SPAM_PREVIEW_CHARS)}…`;
 }
