@@ -84,12 +84,15 @@ def _ytdlp_auth_args() -> str:
 
 
 def _ytdlp_js_args() -> str:
-    """Local yt-dlp uses Deno for YouTube JS challenges; Docker needs it too."""
+    """Local yt-dlp uses Deno + EJS challenge scripts; Docker needs both."""
+    parts: list[str] = []
     if shutil.which("deno"):
-        return "--js-runtimes deno "
-    if shutil.which("node"):
-        return "--js-runtimes node "
-    return ""
+        parts.append("--js-runtimes deno")
+    elif shutil.which("node"):
+        parts.append("--js-runtimes node")
+    # Required for YouTube "n" signature challenges (see yt-dlp wiki/EJS).
+    parts.append("--remote-components ejs:github")
+    return (" ".join(parts) + " ") if parts else ""
 
 
 def _ytdlp_proxy_args() -> str:
