@@ -194,8 +194,8 @@ async def _kill_process(proc: asyncio.subprocess.Process | None) -> None:
         pass
 
 
-# web first once Deno can solve JS challenges (same path as local).
-_PLAYER_CLIENTS = ("web", "tv", "android", "ios")
+# Prefer default extract (same as local Mac). Forced clients are fallbacks only.
+_PLAYER_CLIENTS: tuple[str | None, ...] = (None, "web", "tv", "android", "ios")
 
 
 async def iter_pcm_chunks(
@@ -218,17 +218,22 @@ async def iter_pcm_chunks(
     for client in _PLAYER_CLIENTS:
         if stop_event.is_set():
             return
-        extractor = f"youtube:player_client={client}"
+        extractor_arg = (
+            f"--extractor-args {shlex.quote(f'youtube:player_client={client}')} "
+            if client
+            else ""
+        )
+        label = client or "default"
         # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
         # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
         pipeline = (
             f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
-            f"{js}{proxy}--extractor-args {shlex.quote(extractor)} "
+            f"{js}{proxy}{extractor_arg}"
             f"{auth}{shlex.quote(url)} "
             f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
             f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
         )
-        logger.warning("Audio probe video=%s player_client=%s", video_id, client)
+        logger.warning("Audio probe video=%s player_client=%s", video_id, label)
 
         proc: asyncio.subprocess.Process | None = None
         stderr_task: asyncio.Task[None] | None = None
@@ -253,7 +258,7 @@ async def iter_pcm_chunks(
                         logger.warning(
                             "yt-dlp/ffmpeg video=%s client=%s: %s",
                             video_id,
-                            client,
+                            label,
                             msg,
                         )
 
@@ -269,7 +274,7 @@ async def iter_pcm_chunks(
                     logger.warning(
                         "Audio chunk read timed out video=%s client=%s",
                         video_id,
-                        client,
+                        label,
                     )
                     break
                 if len(pcm) < _CHUNK_BYTES // 2:
