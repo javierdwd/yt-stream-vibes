@@ -30,6 +30,38 @@ const EMPTY_LABELS = [
 
 const WORD_FILL = ["#3dffb5", "#e8eef4", "#8b9aab", "#ff5c7a"] as const;
 
+function TopicPending() {
+  return (
+    <span
+      className="inline-flex items-center gap-1.5 text-muted"
+      aria-label="Loading topic"
+    >
+      <span
+        className="size-2.5 shrink-0 animate-spin rounded-full border border-muted border-t-accent"
+        aria-hidden
+      />
+      <span>…</span>
+    </span>
+  );
+}
+
+function TopicLine({
+  label,
+  value,
+  pending,
+}: {
+  label: string;
+  value?: string | null;
+  pending: boolean;
+}) {
+  return (
+    <p className="font-mono text-[10px] leading-snug text-fg">
+      <span className="text-muted">{label} </span>
+      {value ? value : pending ? <TopicPending /> : "—"}
+    </p>
+  );
+}
+
 export function VibeRadarPanel({ sessionId }: Props) {
   const [stats, setStats] = useState<StatsEvent | null>(null);
   const [status, setStatus] = useState<"idle" | "connecting" | "live" | "error">(
@@ -297,14 +329,21 @@ export function VibeRadarPanel({ sessionId }: Props) {
                   </p>
                 )}
               </div>
-              <p className="font-mono text-[10px] leading-snug text-fg">
-                <span className="text-muted">Topic streamer </span>
-                {stats?.streamer_topic ?? "—"}
-              </p>
-              <p className="font-mono text-[10px] leading-snug text-fg">
-                <span className="text-muted">Topic chat </span>
-                {stats?.chat_topic ?? "—"}
-              </p>
+              <TopicLine
+                label="Topic streamer"
+                value={stats?.streamer_topic}
+                pending={
+                  Boolean(sessionId) &&
+                  !stats?.streamer_topic &&
+                  !stats?.audio_error &&
+                  stats?.platform !== "twitch"
+                }
+              />
+              <TopicLine
+                label="Topic chat"
+                value={stats?.chat_topic}
+                pending={Boolean(sessionId) && !stats?.chat_topic}
+              />
             </div>
             <div className="grid min-h-[220px] flex-[1.15] grid-rows-2 gap-2">
               <div className="min-h-0">
