@@ -12,6 +12,19 @@ type Props = {
 };
 
 const MAX_MESSAGES = 200;
+const SPAM_PREVIEW_CHARS = 80;
+
+function isSpamMessage(m: ChatMessage): boolean {
+  return Boolean(m.spam || m.intent === "spam");
+}
+
+/** One-line preview for spam floods (emoji walls, etc.). */
+function displayMessage(m: ChatMessage): string {
+  const raw = (m.message || "").replace(/\s+/g, " ").trim();
+  if (!isSpamMessage(m)) return m.message || "";
+  if (raw.length <= SPAM_PREVIEW_CHARS) return raw;
+  return `${raw.slice(0, SPAM_PREVIEW_CHARS)}…`;
+}
 
 function mergeMessages(prev: ChatMessage[], batch: ChatMessage[]): ChatMessage[] {
   const byId = new Map(prev.map((m) => [m.id, m]));
@@ -113,16 +126,18 @@ export function IngestedChatFeed({ sessionId }: Props) {
           <p className="text-muted">Waiting for messages…</p>
         ) : (
           <ul className="flex flex-col gap-1.5">
-            {messages.map((m) => (
+            {messages.map((m) => {
+              const spam = isSpamMessage(m);
+              return (
               <li
                 key={m.id}
                 className={`border-b border-border/60 pb-1.5 last:border-0 ${
-                  m.spam || m.intent === "spam" ? "opacity-45" : ""
+                  spam ? "opacity-45" : ""
                 }`}
               >
                 <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
                   <span className="text-accent">{m.author || "anon"}</span>
-                  {m.spam || m.intent === "spam" ? (
+                  {spam ? (
                     <span className="text-[10px] uppercase tracking-wide text-live">
                       spam{m.spam_reason ? `:${m.spam_reason}` : ""}
                     </span>
@@ -145,9 +160,17 @@ export function IngestedChatFeed({ sessionId }: Props) {
                     </>
                   )}
                 </div>
-                <p className="mt-0.5 break-words text-fg/90">{m.message}</p>
+                <p
+                  className={`mt-0.5 text-fg/90 ${
+                    spam ? "truncate" : "break-words"
+                  }`}
+                  title={spam ? m.message || undefined : undefined}
+                >
+                  {displayMessage(m)}
+                </p>
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
       </div>
