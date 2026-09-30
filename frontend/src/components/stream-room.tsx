@@ -114,7 +114,7 @@ export function StreamRoom({ platform, streamId }: Props) {
         : null;
 
   return (
-    <main className="flex h-full min-h-0 flex-1 flex-col gap-3 overflow-hidden px-3 py-3 md:gap-4 md:px-6 md:py-4">
+    <main className="flex min-h-0 flex-1 flex-col gap-3 px-3 py-3 md:gap-4 md:px-6 md:py-4 lg:h-full lg:overflow-hidden">
       <IdleSessionGuard
         sessionId={sessionId}
         onIdleDisconnect={onIdleDisconnect}
@@ -174,12 +174,13 @@ export function StreamRoom({ platform, streamId }: Props) {
         <p className="shrink-0 truncate font-mono text-xs text-live">{actionError}</p>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-[minmax(0,1.2fr)_minmax(0,1fr)_minmax(0,1fr)] gap-2 overflow-hidden md:gap-3 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1">
-        <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
+      {/* Mobile: stack with real heights + page scroll. lg+: locked 3-col desk. */}
+      <div className="grid grid-cols-1 gap-2 md:gap-3 lg:min-h-0 lg:flex-1 lg:grid-cols-[minmax(0,1.4fr)_minmax(0,1fr)_minmax(0,1fr)] lg:grid-rows-1 lg:overflow-hidden">
+        <section className="flex min-h-[240px] min-w-0 flex-col overflow-hidden border border-border bg-surface lg:min-h-0">
           <div className="shrink-0 border-b border-border px-3 py-2 font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
             Player
           </div>
-          <div className="relative min-h-0 flex-1 bg-bg">
+          <div className="relative min-h-[200px] flex-1 bg-bg lg:min-h-0">
             {playerSrc ? (
               <iframe
                 title={`${platform} live player`}
@@ -195,8 +196,12 @@ export function StreamRoom({ platform, streamId }: Props) {
           </div>
         </section>
 
-        <IngestedChatFeed sessionId={sessionId} />
-        <VibeRadarPanel sessionId={sessionId} />
+        <div className="flex min-h-[280px] min-w-0 flex-col lg:min-h-0">
+          <IngestedChatFeed sessionId={sessionId} />
+        </div>
+        <div className="flex min-h-[280px] min-w-0 flex-col lg:min-h-0">
+          <VibeRadarPanel sessionId={sessionId} />
+        </div>
       </div>
     </main>
   );

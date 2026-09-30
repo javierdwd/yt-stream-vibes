@@ -3,7 +3,7 @@ import { UrlPastePanel } from "@/components/url-paste-panel";
 
 export default function Home() {
   return (
-    <main className="flex h-full min-h-0 flex-1 flex-col gap-6 overflow-hidden px-6 py-8 md:px-10">
+    <main className="flex min-h-0 flex-1 flex-col gap-6 px-6 py-8 md:px-10 lg:h-full lg:overflow-hidden">
       <header className="flex shrink-0 items-baseline justify-between border-b border-border pb-4">
         <h1 className="text-2xl font-semibold tracking-tight text-fg md:text-3xl">
           yt-stream-vibes

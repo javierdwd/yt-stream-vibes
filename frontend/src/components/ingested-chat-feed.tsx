@@ -97,7 +97,7 @@ export function IngestedChatFeed({ sessionId }: Props) {
   }, [messages]);
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col overflow-hidden border border-border bg-surface">
+    <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border bg-surface">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
           Ingested + JEV

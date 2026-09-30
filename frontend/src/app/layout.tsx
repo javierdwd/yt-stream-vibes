@@ -30,7 +30,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
     >
       <body className="flex h-dvh flex-col overflow-hidden bg-bg text-fg">
         <QueryProvider>
-          <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">
             {children}
           </div>
           <SiteFooter />
