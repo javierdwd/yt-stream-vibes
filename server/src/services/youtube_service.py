@@ -371,6 +371,14 @@ async def _rerank_by_chat_engagement(
         for sid, (unique, rate, count) in zip(sample_ids, scores, strict=True)
     }
 
+    for stream in streams:
+        sid = str(stream.get("stream_id") or "")
+        hit = score_by_id.get(sid)
+        if hit is None:
+            continue
+        unique, _rate, _count = hit
+        stream["chat_authors"] = unique
+
     sampled: list[dict[str, Any]] = []
     rest: list[dict[str, Any]] = []
     sampled_set = set(sample_ids)

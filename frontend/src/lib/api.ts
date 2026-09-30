@@ -10,6 +10,8 @@ export type LiveStream = {
   channel: string;
   thumbnail_url: string;
   concurrent_viewers: number | null;
+  /** Unique chat authors in a recent sample (YouTube engagement proxy). */
+  chat_authors?: number | null;
   live: boolean;
 };
 

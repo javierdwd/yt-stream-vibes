@@ -16,6 +16,10 @@ function formatViewers(n: number | null): string {
 function StreamTile({ stream }: { stream: LiveStream }) {
   const href = `/streaming/${encodeURIComponent(stream.platform)}/${encodeURIComponent(stream.stream_id)}`;
   const viewers = formatViewers(stream.concurrent_viewers);
+  const chatters =
+    typeof stream.chat_authors === "number"
+      ? formatViewers(stream.chat_authors)
+      : null;
 
   return (
     <Link
@@ -54,13 +58,27 @@ function StreamTile({ stream }: { stream: LiveStream }) {
           <p
             className="shrink-0 font-mono text-[11px] tabular-nums text-accent"
             title={
-              stream.concurrent_viewers != null
-                ? `${stream.concurrent_viewers.toLocaleString()} watching`
-                : undefined
+              [
+                stream.concurrent_viewers != null
+                  ? `${stream.concurrent_viewers.toLocaleString()} watching`
+                  : null,
+                typeof stream.chat_authors === "number"
+                  ? `${stream.chat_authors.toLocaleString()} in recent chat sample`
+                  : null,
+              ]
+                .filter(Boolean)
+                .join(" · ") || undefined
             }
           >
             {viewers}
             <span className="ml-1 text-muted">viewing</span>
+            {chatters != null ? (
+              <>
+                <span className="mx-1 text-muted/50">·</span>
+                {chatters}
+                <span className="ml-1 text-muted">chat</span>
+              </>
+            ) : null}
           </p>
         </div>
       </div>
