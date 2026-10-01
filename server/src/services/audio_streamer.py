@@ -216,7 +216,14 @@ async def _kill_process(proc: asyncio.subprocess.Process | None) -> None:
 
 
 # Prefer default extract (same as local Mac). Forced clients are fallbacks only.
-_PLAYER_CLIENTS: tuple[str | None, ...] = (None, "web", "tv", "android", "ios")
+# android/ios often still list live formats when web is bot-checked.
+_PLAYER_CLIENTS: tuple[str | None, ...] = (None, "android", "ios")
+
+# Live STT: prefer tiny audio-only HLS (233/234) over 1080p muxed (301) — less CDN friction.
+_YTDLP_FORMAT = "234/233/bestaudio/91/92/93/94/95/best[height<=360]/best"
+
+# CDN 403s before any PCM → bail this client early (don't wait for read timeout).
+_CDN_403_BAIL = 4
 
 
 async def iter_pcm_chunks(
@@ -236,91 +243,115 @@ async def iter_pcm_chunks(
         "yes" if "deno" in js else "no",
     )
 
-    for client in _PLAYER_CLIENTS:
-        if stop_event.is_set():
-            return
-        extractor_arg = (
-            f"--extractor-args {shlex.quote(f'youtube:player_client={client}')} "
-            if client
-            else ""
-        )
-        label = client or "default"
-        # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
-        # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
-        pipeline = (
-            f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
-            f"{js}{proxy}{extractor_arg}"
-            f"{auth}{shlex.quote(url)} "
-            f"| ffmpeg -hide_banner -loglevel fatal -i pipe:0 "
-            f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
-        )
-        logger.warning("Audio probe video=%s player_client=%s", video_id, label)
+    # Cookies help bot-checks but can 403 public lives; try with then without.
+    auth_modes: list[tuple[str, str]] = [("cookies", auth)] if auth else []
+    auth_modes.append(("anon", ""))
 
-        proc: asyncio.subprocess.Process | None = None
-        stderr_task: asyncio.Task[None] | None = None
-        got_audio = False
-        try:
-            proc = await asyncio.create_subprocess_shell(
-                pipeline,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
+    for auth_label, auth_args in auth_modes:
+        for client in _PLAYER_CLIENTS:
+            if stop_event.is_set():
+                return
+            extractor_arg = (
+                f"--extractor-args {shlex.quote(f'youtube:player_client={client}')} "
+                if client
+                else ""
             )
-            assert proc.stdout is not None
-            assert proc.stderr is not None
+            label = f"{client or 'default'}/{auth_label}"
+            # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
+            # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
+            pipeline = (
+                f"yt-dlp -f {shlex.quote(_YTDLP_FORMAT)} -o - --no-playlist --no-warnings "
+                f"{js}{proxy}{extractor_arg}"
+                f"{auth_args}{shlex.quote(url)} "
+                f"| ffmpeg -hide_banner -loglevel fatal -i pipe:0 "
+                f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
+            )
+            logger.warning("Audio probe video=%s player_client=%s", video_id, label)
 
-            async def _drain_stderr() -> None:
-                assert proc is not None and proc.stderr is not None
-                while True:
-                    line = await proc.stderr.readline()
-                    if not line:
+            proc: asyncio.subprocess.Process | None = None
+            stderr_task: asyncio.Task[None] | None = None
+            got_audio = False
+            cdn_403 = 0
+            try:
+                proc = await asyncio.create_subprocess_shell(
+                    pipeline,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                )
+                assert proc.stdout is not None
+                assert proc.stderr is not None
+
+                async def _drain_stderr() -> None:
+                    nonlocal cdn_403
+                    assert proc is not None and proc.stderr is not None
+                    while True:
+                        line = await proc.stderr.readline()
+                        if not line:
+                            break
+                        msg = line.decode("utf-8", errors="replace").strip()
+                        if not msg or _is_ffmpeg_noise(msg):
+                            continue
+                        if "HTTP error 403" in msg or "403 Forbidden" in msg:
+                            cdn_403 += 1
+                        logger.warning(
+                            "yt-dlp/ffmpeg video=%s client=%s: %s",
+                            video_id,
+                            label,
+                            msg,
+                        )
+
+                stderr_task = asyncio.create_task(_drain_stderr())
+
+                soft_misses = 0
+                while not stop_event.is_set():
+                    if not got_audio and cdn_403 >= _CDN_403_BAIL:
+                        logger.warning(
+                            "Audio CDN 403 bail video=%s client=%s count=%d",
+                            video_id,
+                            label,
+                            cdn_403,
+                        )
                         break
-                    msg = line.decode("utf-8", errors="replace").strip()
-                    if not msg or _is_ffmpeg_noise(msg):
-                        continue
-                    logger.warning(
-                        "yt-dlp/ffmpeg video=%s client=%s: %s",
-                        video_id,
-                        label,
-                        msg,
-                    )
+                    # Short polls until first PCM so CDN 403s abort without waiting ~18s.
+                    read_timeout = 2.5 if not got_audio else (_CHUNK_SECONDS + 15.0)
+                    try:
+                        pcm = await asyncio.wait_for(
+                            _read_exact(proc.stdout, _CHUNK_BYTES),
+                            timeout=read_timeout,
+                        )
+                    except asyncio.TimeoutError:
+                        if not got_audio:
+                            soft_misses += 1
+                            if cdn_403 >= _CDN_403_BAIL or soft_misses < 8:
+                                continue
+                        logger.warning(
+                            "Audio chunk read timed out video=%s client=%s",
+                            video_id,
+                            label,
+                        )
+                        break
+                    if len(pcm) < _CHUNK_BYTES // 2:
+                        break
+                    got_audio = True
+                    if len(pcm) < _CHUNK_BYTES:
+                        pcm = pcm + b"\x00" * (_CHUNK_BYTES - len(pcm))
+                    yield pcm
+            finally:
+                await _kill_process(proc)
+                if stderr_task is not None:
+                    stderr_task.cancel()
+                    try:
+                        await stderr_task
+                    except asyncio.CancelledError:
+                        pass
 
-            stderr_task = asyncio.create_task(_drain_stderr())
-
-            while not stop_event.is_set():
-                try:
-                    pcm = await asyncio.wait_for(
-                        _read_exact(proc.stdout, _CHUNK_BYTES),
-                        timeout=_CHUNK_SECONDS + 15.0,
-                    )
-                except asyncio.TimeoutError:
-                    logger.warning(
-                        "Audio chunk read timed out video=%s client=%s",
-                        video_id,
-                        label,
-                    )
-                    break
-                if len(pcm) < _CHUNK_BYTES // 2:
-                    break
-                got_audio = True
-                if len(pcm) < _CHUNK_BYTES:
-                    pcm = pcm + b"\x00" * (_CHUNK_BYTES - len(pcm))
-                yield pcm
-        finally:
-            await _kill_process(proc)
-            if stderr_task is not None:
-                stderr_task.cancel()
-                try:
-                    await stderr_task
-                except asyncio.CancelledError:
-                    pass
-
-        if got_audio:
-            return
+            if got_audio:
+                return
 
     logger.warning(
         "YouTube audio blocked video=%s (datacenter / bot-check). "
-        "Chat + keywords still run; STT only works from a residential IP "
-        "or with fresh cookies that YouTube accepts.",
+        "Chat + keywords still run; STT needs a residential IP "
+        "(YTDLP_PROXY) or cookies YouTube accepts for googlevideo CDN.",
         video_id,
     )
 
