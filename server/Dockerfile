@@ -1,7 +1,7 @@
 FROM python:3.12-slim-bookworm
 
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ffmpeg curl unzip ca-certificates \
+    && apt-get install -y --no-install-recommends ffmpeg curl unzip ca-certificates proxychains4 \
     && rm -rf /var/lib/apt/lists/*
 
 # yt-dlp YouTube extractor needs a JS runtime (same as local: Deno).

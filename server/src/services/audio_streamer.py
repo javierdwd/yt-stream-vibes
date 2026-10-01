@@ -113,34 +113,104 @@ def _ytdlp_js_args() -> str:
     return (" ".join(parts) + " ") if parts else ""
 
 
-def _ytdlp_proxy_args() -> str:
-    """Optional SOCKS/HTTP proxy (e.g. ssh -D on AWS → Mac).
+def _parse_proxy_url(raw: str) -> dict[str, str] | None:
+    """Parse YTDLP_PROXY into scheme/host/port (userinfo ignored for SOCKS conf)."""
+    raw = (raw or "").strip()
+    if not raw or "://" not in raw:
+        return None
+    scheme, rest = raw.split("://", 1)
+    # strip user:pass@
+    if "@" in rest:
+        rest = rest.rsplit("@", 1)[-1]
+    host, _, port = rest.partition(":")
+    port = port.split("/", 1)[0]
+    if not host or not port:
+        return None
+    return {"scheme": scheme.lower(), "host": host, "port": port}
 
-    Leave unset when the whole process already exits via Tailscale exit node.
-    With a proxy, force the native HLS downloader: yt-dlp's ffmpeg HLS helper
-    often ignores --proxy and hits googlevideo from the AWS IP → 403.
-    """
+
+def _is_socks_proxy(raw: str) -> bool:
+    parsed = _parse_proxy_url(raw)
+    return bool(parsed and parsed["scheme"].startswith("socks"))
+
+
+def _ensure_proxychains_conf(proxy: str) -> str | None:
+    """Write a tiny proxychains conf so ffmpeg (no SOCKS support) exits via ssh -D."""
+    parsed = _parse_proxy_url(proxy)
+    if not parsed or not parsed["scheme"].startswith("socks"):
+        return None
+    cache = _env("XDG_CACHE_HOME", "/tmp") or "/tmp"
+    path = os.path.join(cache, "proxychains-ytdlp.conf")
+    # socks5h → remote DNS via proxy_dns
+    body = (
+        "strict_chain\n"
+        "quiet_mode\n"
+        "proxy_dns\n"
+        "tcp_read_time_out 15000\n"
+        "tcp_connect_time_out 8000\n"
+        "[ProxyList]\n"
+        f"socks5 {parsed['host']} {parsed['port']}\n"
+    )
+    try:
+        os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(body)
+        return path
+    except OSError:
+        logger.warning("Could not write proxychains conf at %s", path)
+        return None
+
+
+def _proxychains_bin() -> str | None:
+    return shutil.which("proxychains4") or shutil.which("proxychains")
+
+
+def _ytdlp_proxy_args() -> str:
+    """HTTP(S) proxy flags for yt-dlp. SOCKS is handled by proxychains (ffmpeg)."""
     proxy = _env("YTDLP_PROXY", "")
     if not proxy:
         return ""
-    return (
-        f"--proxy {shlex.quote(proxy)} "
-        f"--downloader {shlex.quote('m3u8:native')} "
-    )
+    # SOCKS: do not pass --proxy (ffmpeg ignores it → AWS IP → 403). Use proxychains.
+    if _is_socks_proxy(proxy):
+        return ""
+    return f"--proxy {shlex.quote(proxy)} "
+
+
+def _wrap_pipeline(inner: str) -> str:
+    """If YTDLP_PROXY is SOCKS, force the whole yt-dlp|ffmpeg tree through it."""
+    proxy = _env("YTDLP_PROXY", "")
+    if not proxy or not _is_socks_proxy(proxy):
+        return inner
+    conf = _ensure_proxychains_conf(proxy)
+    bin_ = _proxychains_bin()
+    if not conf or not bin_:
+        logger.warning(
+            "SOCKS proxy set but proxychains unavailable — ffmpeg will bypass "
+            "the tunnel and YouTube CDN will 403 from AWS"
+        )
+        # Fall back to yt-dlp --proxy only (better than nothing for metadata).
+        return (
+            inner.replace(
+                "yt-dlp ",
+                f"yt-dlp --proxy {shlex.quote(proxy)} ",
+                1,
+            )
+        )
+    return f"{bin_} -q -f {shlex.quote(conf)} sh -c {shlex.quote(inner)}"
 
 
 def _pipeline_env() -> dict[str, str]:
-    """Env for the yt-dlp|ffmpeg shell: also set ALL_PROXY so child tools follow SOCKS."""
+    """Env for the yt-dlp|ffmpeg shell."""
     env = os.environ.copy()
     proxy = _env("YTDLP_PROXY", "")
-    if proxy:
+    # SOCKS goes through proxychains LD_PRELOAD — don't also set ALL_PROXY.
+    if proxy and not _is_socks_proxy(proxy):
         env.setdefault("ALL_PROXY", proxy)
         env.setdefault("all_proxy", proxy)
-        # Avoid accidental HTTP_PROXY pointing at Bright Data / stale values.
-        env.pop("HTTP_PROXY", None)
-        env.pop("HTTPS_PROXY", None)
-        env.pop("http_proxy", None)
-        env.pop("https_proxy", None)
+    env.pop("HTTP_PROXY", None)
+    env.pop("HTTPS_PROXY", None)
+    env.pop("http_proxy", None)
+    env.pop("https_proxy", None)
     return env
 
 
@@ -161,6 +231,9 @@ def audio_prereqs() -> str | None:
         missing.append("ffmpeg")
     if shutil.which("yt-dlp") is None:
         missing.append("yt-dlp")
+    proxy = _env("YTDLP_PROXY", "")
+    if proxy and _is_socks_proxy(proxy) and _proxychains_bin() is None:
+        missing.append("proxychains4 (required for SOCKS + ffmpeg HLS)")
     if missing:
         return f"missing system deps: {', '.join(missing)}"
     return None
@@ -259,11 +332,16 @@ async def iter_pcm_chunks(
     js = _ytdlp_js_args()
     proxy = _ytdlp_proxy_args()
     logger.warning(
-        "Audio start video=%s proxy=%s cookies=%s deno=%s",
+        "Audio start video=%s proxy=%s cookies=%s deno=%s proxychains=%s",
         video_id,
         _proxy_log_host(),
         "yes" if auth else "no",
         "yes" if "deno" in js else "no",
+        "yes"
+        if _env("YTDLP_PROXY", "")
+        and _is_socks_proxy(_env("YTDLP_PROXY", ""))
+        and _proxychains_bin()
+        else "no",
     )
 
     # Cookies help bot-checks but can 403 public lives; try with then without.
@@ -282,13 +360,15 @@ async def iter_pcm_chunks(
             label = f"{client or 'default'}/{auth_label}"
             # One shell pipeline: asyncio cannot pass StreamReader as another process's stdin
             # (no fileno). yt-dlp audio → ffmpeg 16k mono s16le on stdout.
-            pipeline = (
+            # SOCKS: wrap with proxychains so ffmpeg HLS also exits via the Mac tunnel.
+            inner = (
                 f"yt-dlp -f {shlex.quote(_YTDLP_FORMAT)} -o - --no-playlist --no-warnings "
                 f"{js}{proxy}{extractor_arg}"
                 f"{auth_args}{shlex.quote(url)} "
                 f"| ffmpeg -hide_banner -loglevel fatal -i pipe:0 "
                 f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
             )
+            pipeline = _wrap_pipeline(inner)
             logger.warning("Audio probe video=%s player_client=%s", video_id, label)
 
             proc: asyncio.subprocess.Process | None = None
@@ -296,12 +376,12 @@ async def iter_pcm_chunks(
             got_audio = False
             cdn_403 = 0
             try:
-            proc = await asyncio.create_subprocess_shell(
-                pipeline,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_pipeline_env(),
-            )
+                proc = await asyncio.create_subprocess_shell(
+                    pipeline,
+                    stdout=asyncio.subprocess.PIPE,
+                    stderr=asyncio.subprocess.PIPE,
+                    env=_pipeline_env(),
+                )
                 assert proc.stdout is not None
                 assert proc.stderr is not None
 
