@@ -196,10 +196,11 @@ export function StreamRoom({ platform, streamId }: Props) {
           </div>
         </section>
 
-        <div className="flex min-h-[280px] min-w-0 flex-col lg:min-h-0">
+        {/* Fixed height on mobile so the list scrolls inside; lg fills the column. */}
+        <div className="flex h-[min(50dvh,360px)] min-w-0 flex-col overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
           <IngestedChatFeed sessionId={sessionId} />
         </div>
-        <div className="flex min-h-[280px] min-w-0 flex-col lg:min-h-0">
+        <div className="flex h-[min(50dvh,360px)] min-w-0 flex-col overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
           <VibeRadarPanel sessionId={sessionId} />
         </div>
       </div>
