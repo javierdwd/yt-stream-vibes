@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { JetBrains_Mono, Syne } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { SiteFooter } from "@/components/site-footer";
@@ -18,8 +19,7 @@ const jetbrains = JetBrains_Mono({
 
 export const metadata: Metadata = {
   title: "yt-stream-vibes",
-  description:
-    "Real-time YouTube live vibe analyzer (JEV Engine)",
+  description: "Real-time YouTube live vibe analyzer (JEV Engine)",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
@@ -35,6 +35,7 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
           </div>
           <SiteFooter />
         </QueryProvider>
+        <Analytics />
       </body>
     </html>
   );
