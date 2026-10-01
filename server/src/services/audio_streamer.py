@@ -23,6 +23,24 @@ _MIN_TRANSCRIPT_CHARS = 3
 _whisper_model: Any | None = None
 _whisper_lock = asyncio.Lock()
 
+# ffmpeg HLS chatter (CDN hop / ad cues) — not actionable failures.
+_FFMPEG_NOISE_MARKERS: tuple[str, ...] = (
+    "Cannot reuse HTTP connection",
+    "keepalive request failed",
+    "retrying with new connection",
+    "Opening 'https://",
+    "Skip ('#EXT-X-",
+    "EXT-X-DATERANGE",
+    "EXT-X-CUEPOINT",
+    "TYPE=AD",
+    "CUEPOINT-AD",
+    "speed=",
+)
+
+
+def _is_ffmpeg_noise(msg: str) -> bool:
+    return any(m in msg for m in _FFMPEG_NOISE_MARKERS)
+
 
 def _env(name: str, default: str) -> str:
     return (os.getenv(name) or default).strip()
@@ -233,7 +251,7 @@ async def iter_pcm_chunks(
             f"yt-dlp -f bestaudio/best -o - --no-playlist --no-warnings "
             f"{js}{proxy}{extractor_arg}"
             f"{auth}{shlex.quote(url)} "
-            f"| ffmpeg -hide_banner -loglevel error -i pipe:0 "
+            f"| ffmpeg -hide_banner -loglevel fatal -i pipe:0 "
             f"-f s16le -ac 1 -ar {_SAMPLE_RATE} pipe:1"
         )
         logger.warning("Audio probe video=%s player_client=%s", video_id, label)
@@ -257,13 +275,14 @@ async def iter_pcm_chunks(
                     if not line:
                         break
                     msg = line.decode("utf-8", errors="replace").strip()
-                    if msg:
-                        logger.warning(
-                            "yt-dlp/ffmpeg video=%s client=%s: %s",
-                            video_id,
-                            label,
-                            msg,
-                        )
+                    if not msg or _is_ffmpeg_noise(msg):
+                        continue
+                    logger.warning(
+                        "yt-dlp/ffmpeg video=%s client=%s: %s",
+                        video_id,
+                        label,
+                        msg,
+                    )
 
             stderr_task = asyncio.create_task(_drain_stderr())
 
