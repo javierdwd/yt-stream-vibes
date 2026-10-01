@@ -114,11 +114,34 @@ def _ytdlp_js_args() -> str:
 
 
 def _ytdlp_proxy_args() -> str:
-    """Optional explicit proxy. Leave unset when using a Tailscale exit node."""
+    """Optional SOCKS/HTTP proxy (e.g. ssh -D on AWS → Mac).
+
+    Leave unset when the whole process already exits via Tailscale exit node.
+    With a proxy, force the native HLS downloader: yt-dlp's ffmpeg HLS helper
+    often ignores --proxy and hits googlevideo from the AWS IP → 403.
+    """
     proxy = _env("YTDLP_PROXY", "")
     if not proxy:
         return ""
-    return f"--proxy {shlex.quote(proxy)} "
+    return (
+        f"--proxy {shlex.quote(proxy)} "
+        f"--downloader {shlex.quote('m3u8:native')} "
+    )
+
+
+def _pipeline_env() -> dict[str, str]:
+    """Env for the yt-dlp|ffmpeg shell: also set ALL_PROXY so child tools follow SOCKS."""
+    env = os.environ.copy()
+    proxy = _env("YTDLP_PROXY", "")
+    if proxy:
+        env.setdefault("ALL_PROXY", proxy)
+        env.setdefault("all_proxy", proxy)
+        # Avoid accidental HTTP_PROXY pointing at Bright Data / stale values.
+        env.pop("HTTP_PROXY", None)
+        env.pop("HTTPS_PROXY", None)
+        env.pop("http_proxy", None)
+        env.pop("https_proxy", None)
+    return env
 
 
 def _proxy_log_host() -> str:
@@ -273,11 +296,12 @@ async def iter_pcm_chunks(
             got_audio = False
             cdn_403 = 0
             try:
-                proc = await asyncio.create_subprocess_shell(
-                    pipeline,
-                    stdout=asyncio.subprocess.PIPE,
-                    stderr=asyncio.subprocess.PIPE,
-                )
+            proc = await asyncio.create_subprocess_shell(
+                pipeline,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_pipeline_env(),
+            )
                 assert proc.stdout is not None
                 assert proc.stderr is not None
 
