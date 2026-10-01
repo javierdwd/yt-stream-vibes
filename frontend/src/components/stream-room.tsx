@@ -200,7 +200,8 @@ export function StreamRoom({ platform, streamId }: Props) {
         <div className="flex h-[min(50dvh,360px)] min-w-0 flex-col overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
           <IngestedChatFeed sessionId={sessionId} />
         </div>
-        <div className="flex h-[min(50dvh,360px)] min-w-0 flex-col overflow-hidden lg:h-auto lg:min-h-0 lg:flex-1">
+        {/* Mobile: grow with content so keywords cloud isn't clipped; lg fills column. */}
+        <div className="flex min-w-0 flex-col lg:h-auto lg:min-h-0 lg:flex-1 lg:overflow-hidden">
           <VibeRadarPanel sessionId={sessionId} />
         </div>
       </div>

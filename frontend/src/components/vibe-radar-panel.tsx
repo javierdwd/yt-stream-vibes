@@ -260,7 +260,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
   );
 
   return (
-    <section className="flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden border border-border bg-surface">
+    <section className="flex min-h-[32rem] min-w-0 flex-1 flex-col overflow-hidden border border-border bg-surface lg:h-full lg:min-h-0">
       <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border px-3 py-2">
         <span className="font-mono text-[10px] uppercase tracking-[0.18em] text-muted">
           Stream vibe
@@ -285,7 +285,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
         </div>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-hidden bg-bg p-3">
+      <div className="flex flex-1 flex-col gap-2 bg-bg p-3 lg:min-h-0 lg:overflow-hidden">
         {!sessionId ? (
           <p className="font-mono text-xs text-muted">
             Start a session to stream vibe stats…
@@ -345,8 +345,8 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 pending={Boolean(sessionId) && !stats?.chat_topic}
               />
             </div>
-            <div className="grid min-h-[220px] flex-[1.15] grid-rows-2 gap-2">
-              <div className="min-h-0">
+            <div className="grid min-h-[200px] shrink-0 grid-rows-2 gap-2 lg:min-h-0 lg:flex-[1.15] lg:shrink">
+              <div className="min-h-[90px] lg:min-h-0">
                 <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
                   Mix %
                 </p>
@@ -357,7 +357,7 @@ export function VibeRadarPanel({ sessionId }: Props) {
                   notMerge
                 />
               </div>
-              <div className="min-h-0">
+              <div className="min-h-[90px] lg:min-h-0">
                 <p className="mb-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
                   Totals
                 </p>
@@ -369,11 +369,11 @@ export function VibeRadarPanel({ sessionId }: Props) {
                 />
               </div>
             </div>
-            <div className="flex min-h-[180px] flex-1 flex-col overflow-hidden border border-border bg-surface/40">
+            <div className="flex min-h-[200px] shrink-0 flex-col overflow-hidden border border-border bg-surface/40 lg:min-h-0 lg:flex-1 lg:shrink">
               <p className="shrink-0 px-2 pt-1.5 font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
                 Keywords
               </p>
-              <div ref={cloudHostRef} className="relative min-h-0 flex-1 px-1 pb-1">
+              <div ref={cloudHostRef} className="relative min-h-[160px] flex-1 px-1 pb-1 lg:min-h-0">
                 {words.length === 0 ? (
                   <p className="px-1 pt-2 font-mono text-[10px] text-muted">
                     Waiting for keywords…
